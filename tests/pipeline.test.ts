@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { INGEST_LIMIT, ingestLibrary, LIBRARY_TOKEN, mergeRecentItems, scanFolder, validateQuote } from "@/lib/pipeline";
+import { INGEST_LIMIT, ingestLibrary, LIBRARY_TOKEN, mapPool, mergeRecentItems, scanFolder, validateQuote } from "@/lib/pipeline";
 import type { ChatFn } from "@/lib/llm";
 import type { FavFolder, FavItem } from "@/lib/types";
 
@@ -59,6 +59,24 @@ describe("validateQuote", () => {
   });
   test("不匹配时退回摘要第一句", () => {
     expect(validateQuote("从简到难，依次练习。每天先坐一分钟。", "瞎编的")).toBe("从简到难，依次练习。");
+  });
+});
+
+describe("mapPool", () => {
+  test("同时运行不超过 limit 个任务", async () => {
+    let live = 0;
+    let peak = 0;
+    const order: number[] = [];
+    await mapPool([1, 2, 3, 4, 5], 2, async (n) => {
+      live++;
+      peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 15));
+      live--;
+      order.push(n);
+      return n;
+    });
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(order.sort()).toEqual([1, 2, 3, 4, 5]);
   });
 });
 
@@ -143,7 +161,7 @@ describe("ingestLibrary", () => {
         },
       },
     );
-    expect(fetched).toEqual(["pub", "priv"]);
+    expect(fetched.sort()).toEqual(["priv", "pub"]);
     expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "收藏" });
     expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("priv");
     expect(res.counts.total).toBe(4);

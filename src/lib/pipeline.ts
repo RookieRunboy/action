@@ -11,7 +11,25 @@ const CONVERT_BATCH = 12;
 const LIMITS = { action: 40, why: 60, replyDraft: 90, front: 40, back: 80, reason: 30, sourceQuote: 60 };
 export const INGEST_LIMIT = 80;
 const PER_FOLDER = 50;
+const FOLDER_CONCURRENCY = 2;
 export const LIBRARY_TOKEN = "library";
+
+/** 限制并行数，避免一次打爆知乎频率限额。 */
+export async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i] as T, i);
+      }
+    }),
+  );
+  return out;
+}
 
 export interface ItemBatch {
   folderToken: string;
@@ -245,12 +263,10 @@ export async function ingestLibrary(
   const fetchFolders = deps.fetchFolders ?? getFavlists;
   const fetchItems = deps.fetchItems ?? getFavlistItems;
   const { folders, stale: s1 } = await fetchFolders(input.identity, input.oauthToken);
-  const batches: ItemBatch[] = await Promise.all(
-    folders.map(async (f) => {
-      const { items, stale } = await fetchItems(input.identity, f.urlToken, input.oauthToken, PER_FOLDER);
-      return { folderToken: f.urlToken, items, stale };
-    }),
-  );
+  const batches: ItemBatch[] = await mapPool(folders, FOLDER_CONCURRENCY, async (f) => {
+    const { items, stale } = await fetchItems(input.identity, f.urlToken, input.oauthToken, PER_FOLDER);
+    return { folderToken: f.urlToken, items, stale };
+  });
   const items = mergeRecentItems(batches);
   const stale = s1 || batches.some((b) => b.stale);
 

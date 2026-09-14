@@ -20,6 +20,7 @@ export function PlanPage({ session }: { session: ClientSession }) {
   const [skipOpen, setSkipOpen] = useState(false);
   const [saveWarn, setSaveWarn] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const ingestLock = useRef(false);
 
   useEffect(() => {
     const lib = loadLibrary(session.identity);
@@ -44,7 +45,10 @@ export function PlanPage({ session }: { session: ClientSession }) {
       saveLibrary(session.identity, lib);
       setData(lib);
     } catch (e) {
-      if ((e as Error).name === "AbortError") return;
+      if ((e as Error).name === "AbortError") {
+        ingestLock.current = false;
+        return;
+      }
       setError((e as Error).message);
     } finally {
       if (abortRef.current === ac) setLoading(false);
@@ -52,7 +56,8 @@ export function PlanPage({ session }: { session: ClientSession }) {
   }, [session.identity]);
 
   useEffect(() => {
-    if (!hydrated || data || error) return;
+    if (!hydrated || data || error || ingestLock.current) return;
+    ingestLock.current = true;
     void ingest();
   }, [hydrated, data, error, ingest]);
 
