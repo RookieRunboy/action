@@ -245,8 +245,8 @@ export function PlanPage({ session }: { session: ClientSession }) {
 
       {data && data.cards.length > 0 && !loading && (
         <div className="sticky-bar">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-2 sm:px-4">
-            <span className="text-sm text-wall-dim">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-2 sm:px-4">
+            <span className="min-w-0 text-sm text-wall-dim">
               已选 <span className="tabular-nums text-white">{selected.size}</span> / {data.cards.length} 张
               {saveWarn && <span className="ml-3 text-[#e8897a]">本浏览器无法保存进度，进度只在本次会话有效。</span>}
             </span>
