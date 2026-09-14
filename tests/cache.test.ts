@@ -1,16 +1,21 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { cacheRoot } from "@/lib/cache";
 
 let dir: string;
+const prevVercel = process.env.VERCEL;
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "zx-cache-"));
   process.env.ZHIXING_CACHE_DIR = dir;
+  delete process.env.VERCEL;
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   delete process.env.ZHIXING_CACHE_DIR;
+  if (prevVercel === undefined) delete process.env.VERCEL;
+  else process.env.VERCEL = prevVercel;
 });
 
 describe("cachedWithFallback", () => {
@@ -47,5 +52,26 @@ describe("cachedWithFallback", () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+  });
+  test("缓存目录不可写时，仍返回刚拉到的值，不把 mkdir 错误抛给用户", async () => {
+    const blocker = path.join(dir, "not-a-dir");
+    writeFileSync(blocker, "x");
+    process.env.ZHIXING_CACHE_DIR = path.join(blocker, "nested");
+    const { cachedWithFallback } = await import("@/lib/cache");
+    const r = await cachedWithFallback("t", "k5", 1000, async () => ({ n: 7 }));
+    expect(r).toEqual({ value: { n: 7 }, stale: false });
+  });
+});
+
+describe("cacheRoot", () => {
+  test("显式 ZHIXING_CACHE_DIR 优先", () => {
+    expect(cacheRoot()).toBe(dir);
+  });
+  test("Vercel 上默认写到系统临时目录，而不是 cwd/.cache", () => {
+    delete process.env.ZHIXING_CACHE_DIR;
+    process.env.VERCEL = "1";
+    const root = cacheRoot();
+    expect(root.startsWith(tmpdir())).toBe(true);
+    expect(root.includes(".cache")).toBe(false);
   });
 });
