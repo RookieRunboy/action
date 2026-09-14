@@ -8,6 +8,12 @@ import { AppShell, type ClientSession } from "./AppShell";
 import { CandidateRow } from "./CandidateRow";
 import { TagChips } from "./TagChips";
 
+/** 体验模式默认打开示例效果最好的公开收藏夹；其余情况取列表第一个 */
+function preferred(fs: FavFolder[]): string {
+  const demoDefault = fs.find((f) => f.title === "运动健康");
+  return (demoDefault ?? fs[0])?.urlToken || "";
+}
+
 export function PlanPage({ session }: { session: ClientSession }) {
   const router = useRouter();
   const [state, setState] = useState<StateV2>(emptyState);
@@ -41,7 +47,7 @@ export function PlanPage({ session }: { session: ClientSession }) {
       .then((fs) => {
         if (cancelled) return;
         setFolders(fs);
-        setFolder((cur) => (cur && fs.some((f) => f.urlToken === cur) ? cur : fs[0]?.urlToken || ""));
+        setFolder((cur) => (cur && fs.some((f) => f.urlToken === cur) ? cur : preferred(fs)));
       })
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {

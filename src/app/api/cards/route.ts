@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionFromRequest } from "@/lib/session";
 import { scanFolder } from "@/lib/pipeline";
-import { ZhihuError } from "@/lib/zhihu";
+import { getFavlists, ZhihuError } from "@/lib/zhihu";
 import { LLMError } from "@/lib/llm";
 
 export const maxDuration = 120;
@@ -14,6 +14,11 @@ export async function GET(req: NextRequest) {
   const refresh = req.nextUrl.searchParams.get("refresh") === "1";
 
   try {
+    if (s.kind === "demo") {
+      const { folders } = await getFavlists(s.identity);
+      const target = folders.find((f) => f.urlToken === folder);
+      if (!target || !target.isPublic) return NextResponse.json({ error: "体验模式只能查看公开收藏夹。" }, { status: 403 });
+    }
     const res = await scanFolder({ identity: s.identity, folderToken: folder, oauthToken: s.oauthToken, refresh });
     return NextResponse.json(res);
   } catch (e) {

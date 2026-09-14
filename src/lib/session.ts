@@ -70,7 +70,7 @@ function demoSession(): Session {
     kind: "demo",
     identity: "self",
     expiresAt: Number.MAX_SAFE_INTEGER,
-    user: { name: "体验账号", headline: "读取 Access Secret 本人的收藏" },
+    user: { name: "示例账号", headline: "项目作者的公开收藏夹" },
   };
 }
 

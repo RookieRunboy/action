@@ -57,12 +57,18 @@ export function Welcome({ oauth, demo, error }: Props) {
             )}
             {demo && (
               <button type="button" className={`btn ${oauth ? "btn-ghost" : "btn-seal"}`} onClick={enterDemo} disabled={busy}>
-                {busy ? "正在进入…" : oauth ? "先用体验模式看看" : "进入体验模式"}
+                {busy ? "正在进入…" : oauth ? "不登录，先看示例" : "进入体验模式"}
               </button>
             )}
             {!oauth && !demo && <p className="text-sm text-wall-dim">服务端还没有配置知乎凭证。</p>}
           </div>
           {(error || localError) && <p className="mt-4 text-sm text-[#e8897a]">{error || localError}</p>}
+          {demo && (
+            <p className="mt-3 max-w-md text-xs leading-relaxed text-wall-dim">
+              体验模式使用项目作者的公开收藏夹作为示例数据，不会读取你的账号。
+              {oauth ? "用知乎登录后，读取的才是你自己的收藏。" : ""}
+            </p>
+          )}
 
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-4 text-xs text-wall-dim">
             <div>
