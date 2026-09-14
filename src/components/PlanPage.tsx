@@ -56,7 +56,8 @@ export function PlanPage({ session }: { session: ClientSession }) {
     };
   }, [hydrated]);
 
-  const ingest = useCallback(async (tokens?: string[]) => {
+  const ingest = useCallback(async () => {
+    if (ingestLock.current) return;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -64,7 +65,7 @@ export function PlanPage({ session }: { session: ClientSession }) {
     setLoading(true);
     setError(null);
     setTag(null);
-    const keys = tokens && tokens.length > 0 ? tokens : [...picked];
+    const keys = [...picked];
     const q = keys.length ? `?folders=${keys.map(encodeURIComponent).join(",")}` : "";
     try {
       const r = await fetch(`/api/cards${q}`, { signal: ac.signal });
@@ -74,22 +75,13 @@ export function PlanPage({ session }: { session: ClientSession }) {
       saveLibrary(session.identity, lib);
       setData(lib);
     } catch (e) {
-      if ((e as Error).name === "AbortError") {
-        ingestLock.current = false;
-        return;
-      }
+      if ((e as Error).name === "AbortError") return;
       setError((e as Error).message);
     } finally {
+      ingestLock.current = false;
       if (abortRef.current === ac) setLoading(false);
     }
   }, [session.identity, picked]);
-
-  useEffect(() => {
-    if (!hydrated || !folders || data || error || ingestLock.current) return;
-    if (folders.length > 0 && picked.size === 0) return;
-    ingestLock.current = true;
-    void ingest([...picked]);
-  }, [hydrated, folders, picked, data, error, ingest]);
 
   useEffect(() => {
     if (data) setSelected(selectionFor(state, data.cards));
@@ -162,10 +154,13 @@ export function PlanPage({ session }: { session: ClientSession }) {
           {!loading && error && (
             <div className="mt-6">
               <p className="song text-ink">{error}</p>
-              <button type="button" className="btn btn-ink mt-3" onClick={() => void ingest([...picked])}>再试一次</button>
+              <button type="button" className="btn btn-ink mt-3" onClick={() => void ingest()}>再试一次</button>
             </div>
           )}
 
+          {!loading && !error && !data && (
+            <p className="song mt-6 text-ink">右边勾选要读的收藏夹，点「确认读入」。不勾则只读默认收藏夹。</p>
+          )}
           {!loading && !error && data && data.counts.total === 0 && (
             <p className="song mt-6 text-ink">收藏里还是空的。去知乎收藏几篇真正想做的，再来登录。</p>
           )}
@@ -210,7 +205,7 @@ export function PlanPage({ session }: { session: ClientSession }) {
           {folders && folders.length > 0 && (
             <div className="card p-4">
               <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">收藏夹</p>
-              <p className="mt-1 text-[11px] leading-relaxed text-wall-dim">默认只读默认收藏夹。要读别的，勾上再点读入。</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-wall-dim">勾选不会立刻读取。选好后点确认，不选则只读默认收藏夹。</p>
               <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto">
                 {folders.map((f) => (
                   <li key={f.urlToken}>
@@ -237,13 +232,8 @@ export function PlanPage({ session }: { session: ClientSession }) {
                   </li>
                 ))}
               </ul>
-              <button
-                type="button"
-                className="btn btn-ghost mt-3 w-full"
-                disabled={loading}
-                onClick={() => void ingest([...picked])}
-              >
-                读入所选
+              <button type="button" className="btn btn-seal mt-3 w-full" disabled={loading} onClick={() => void ingest()}>
+                确认读入
               </button>
             </div>
           )}
