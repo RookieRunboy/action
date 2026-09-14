@@ -64,15 +64,55 @@ export interface LifeSceneInput {
   action?: string;
 }
 
-const HIGH_LOAD = /超负荷|力竭|高强度训练/;
-const TECHNIQUE = /坐垫|吊坠|站距|投篮|硬拉|校准/;
-const NOT_LIFE_SCENE = /健身房|球场|篮球场|网球场|运球|网球|自行车|骑行|杠铃/;
+export const LIFE_SCENE_REASON = {
+  highLoad: "高负荷训练，不适合当日常",
+  technique: "运动技术，做成闪卡",
+  notDaily: "不是生活微步骤",
+} as const;
 
-/** 把 LLM 分拣/行动文案收成生活场景：高负荷 skip，技术校准 knowledge，其余保留 kind。 */
+/** 高负荷训练方案 → skip */
+const HIGH_LOAD = ["超负荷", "力竭", "高强度训练"] as const;
+
+/** 运动技术 / 场地 / 器械。校准只绑坐垫/吊坠，不用裸「校准」。 */
+const SPORT_TECHNIQUE = [
+  "坐垫",
+  "吊坠",
+  "站距",
+  "投篮",
+  "硬拉",
+  "运球",
+  "健身房",
+  "球场",
+  "篮球场",
+  "网球场",
+  "网球",
+  "自行车",
+  "骑行",
+  "杠铃",
+] as const;
+
+const LIFE_SCENE_REMAP: { terms: readonly string[]; to: LifeSceneKind; reason: string }[] = [
+  { terms: HIGH_LOAD, to: "skip", reason: LIFE_SCENE_REASON.highLoad },
+  { terms: SPORT_TECHNIQUE, to: "knowledge", reason: LIFE_SCENE_REASON.technique },
+];
+
+function hasTerm(text: string, terms: readonly string[]): boolean {
+  return terms.some((t) => text.includes(t));
+}
+
+/** 把 LLM 分拣/行动文案收成生活场景：高负荷 skip，技术/场地/器械 knowledge，其余保留 kind。 */
 export function applyLifeScenePolicy(input: LifeSceneInput): LifeSceneKind {
+  return lifeSceneVerdict(input).kind;
+}
+
+/** 政策改了 kind 时带上对用户的短理由；未改则不给 reason。 */
+export function lifeSceneVerdict(input: LifeSceneInput): { kind: LifeSceneKind; reason?: string } {
   const text = [input.title, input.summary, input.action].filter(Boolean).join("\n");
-  if (HIGH_LOAD.test(text)) return "skip";
-  if (TECHNIQUE.test(text)) return input.kind === "skip" ? "skip" : "knowledge";
-  if (input.kind === "action" && NOT_LIFE_SCENE.test(text)) return "skip";
-  return input.kind;
+  for (const rule of LIFE_SCENE_REMAP) {
+    if (!hasTerm(text, rule.terms)) continue;
+    if (rule.to === "knowledge" && input.kind === "skip") return { kind: "skip" };
+    if (rule.to === input.kind) return { kind: input.kind };
+    return { kind: rule.to, reason: rule.reason };
+  }
+  return { kind: input.kind };
 }

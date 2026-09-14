@@ -85,7 +85,7 @@ describe("applyLifeScenePolicy", () => {
     ).toBe("skip");
   });
 
-  test("行动原文不是生活微步骤则不为 action", () => {
+  test("行动原文含运球/网球则收成 knowledge，不是 action", () => {
     expect(
       applyLifeScenePolicy({
         kind: "action",
@@ -93,6 +93,50 @@ describe("applyLifeScenePolicy", () => {
         summary: "坐着也能活动肩背。",
         action: "左手运球同时右手持网球 30 秒",
       }),
-    ).not.toBe("action");
+    ).toBe("knowledge");
+  });
+
+  test("无超负荷的运球是运动技术 knowledge，不是 skip", () => {
+    expect(
+      applyLifeScenePolicy({
+        kind: "action",
+        title: "弱手运球",
+        summary: "左手运球找节奏，不用网球。",
+      }),
+    ).toBe("knowledge");
+  });
+
+  test("裸「校准」不改分拣；坐垫/吊坠才收成 knowledge", () => {
+    expect(
+      applyLifeScenePolicy({
+        kind: "action",
+        title: "认知校准",
+        summary: "先校准自己的判断标准，再做决定。",
+      }),
+    ).toBe("action");
+  });
+
+  test("场地/器械上的 action 收成 knowledge", () => {
+    expect(
+      applyLifeScenePolicy({
+        kind: "action",
+        title: "投篮分解",
+        summary: "把投篮拆成准备、发力、随前三个环节。",
+      }),
+    ).toBe("knowledge");
+    expect(
+      applyLifeScenePolicy({
+        kind: "action",
+        title: "硬拉站距",
+        summary: "双脚站距与髋同宽，杠铃贴小腿。",
+      }),
+    ).toBe("knowledge");
+    expect(
+      applyLifeScenePolicy({
+        kind: "action",
+        title: "去健身房的第一周",
+        summary: "先熟悉器械，再谈计划。",
+      }),
+    ).toBe("knowledge");
   });
 });
