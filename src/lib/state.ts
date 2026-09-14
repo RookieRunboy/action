@@ -101,6 +101,16 @@ export function saveState(identity: string, s: StateV2): boolean {
   }
 }
 
+function withScan(
+  s: StateV2,
+  snapshots: Record<string, Card>,
+  states: Record<string, CardState>,
+  scan: { token: string } & FolderScan,
+): StateV2 {
+  const { token, ...folderScan } = scan;
+  return { ...s, cards: snapshots, states, folders: { ...s.folders, [token]: folderScan }, lastFolder: token };
+}
+
 /** 规范 §8.2「加入知行」的状态转换 */
 export function commitSelection(
   s: StateV2,
@@ -126,8 +136,30 @@ export function commitSelection(
       states[card.id] = { ...cur, status: "dismissed", due: null };
     }
   }
-  const { token, ...folderScan } = scan;
-  return { ...s, cards: snapshots, states, folders: { ...s.folders, [token]: folderScan }, lastFolder: token };
+  return withScan(s, snapshots, states, scan);
+}
+
+/** 扫描后全部转化卡入库；已有进度不变，dismissed 不复活。skip 不在 cards 里，不会入库。 */
+export function importCards(
+  s: StateV2,
+  cards: Card[],
+  now: number,
+  scan: { token: string } & FolderScan,
+): StateV2 {
+  const states: Record<string, CardState> = { ...s.states };
+  const snapshots: Record<string, Card> = { ...s.cards };
+  for (const card of cards) {
+    snapshots[card.id] = card;
+    if (!states[card.id]) states[card.id] = newCardState(card.id, card.kind, now);
+  }
+  return withScan(s, snapshots, states, scan);
+}
+
+/** 删除：dismissed、due null、保留 history。ensureQueue 会把它移出今日组。 */
+export function dismissCard(s: StateV2, id: string): StateV2 {
+  const cur = s.states[id];
+  if (!cur || cur.status === "dismissed") return s;
+  return { ...s, states: { ...s.states, [id]: { ...cur, status: "dismissed", due: null } } };
 }
 
 function withQueue(s: StateV2, date: string, queue: DayQueue, states: Record<string, CardState>): StateV2 {

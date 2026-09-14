@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { advanceQueue, commitSelection, emptyState, ensureQueue, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
+import { advanceQueue, commitSelection, dismissCard, emptyState, ensureQueue, importCards, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
 import type { ActionCard, Card, CardsResponse, FlashCard, FolderScan, StateV2 } from "@/lib/types";
 
 const D = "2026-09-14";
@@ -202,5 +202,95 @@ describe("parseLibrary", () => {
     expect(parseLibrary(null)).toBeNull();
     expect(parseLibrary("{oops")).toBeNull();
     expect(parseLibrary(JSON.stringify({ folder: {}, cards: null }))).toBeNull();
+  });
+});
+
+describe("importCards", () => {
+  test("扫描后全部 action+flash 入库 queued，skip 不入库", () => {
+    const data: CardsResponse = {
+      folder: { urlToken: "697", title: "我的收藏" },
+      counts: scan.counts,
+      cards: [action("a"), flash("f")],
+      skipped: [
+        { id: "s1", title: "故事", url: "https://z/s1", reason: "情绪" },
+        { id: "s2", title: "争论", url: "https://z/s2", reason: "争论" },
+      ],
+      provider: "test",
+      stale: false,
+    };
+    const s = importCards(emptyState(), data.cards, 5, scan);
+    expect(s.states.a).toMatchObject({ status: "queued", box: 0, due: null, addedAt: 5, kind: "action" });
+    expect(s.states.f).toMatchObject({ status: "queued", box: 0, due: null, addedAt: 5, kind: "flash" });
+    expect(s.cards.a).toEqual(data.cards[0]);
+    expect(s.cards.f).toEqual(data.cards[1]);
+    expect(s.states.s1).toBeUndefined();
+    expect(s.states.s2).toBeUndefined();
+    expect(s.cards.s1).toBeUndefined();
+    expect(Object.keys(s.states).sort()).toEqual(["a", "f"]);
+    expect(s.folders["697"]).toEqual({ title: "我的收藏", counts: scan.counts, scannedAt: 1, provider: "test" });
+    expect(s.lastFolder).toBe("697");
+  });
+  test("已有 queued/active/internalized 不变，新卡 queued", () => {
+    let s = importCards(emptyState(), [action("a"), action("b")], 5, scan);
+    s = ensureQueue(s, D);
+    const beforeA = s.states.a;
+    s = {
+      ...s,
+      states: { ...s.states, b: { ...s.states.b, status: "internalized", box: 5, due: null } },
+    };
+    const beforeB = s.states.b;
+    s = importCards(s, [action("a"), action("b"), flash("f")], 9, scan);
+    expect(s.states.a).toEqual(beforeA);
+    expect(s.states.b).toEqual(beforeB);
+    expect(s.states.f).toMatchObject({ status: "queued", addedAt: 9, kind: "flash" });
+  });
+  test("dismissed 不被后续扫描复活", () => {
+    let s = importCards(emptyState(), [action("a")], 5, scan);
+    s = ensureQueue(s, D);
+    s = recordResult(s, "a", "did", D);
+    s = dismissCard(s, "a");
+    expect(s.states.a.status).toBe("dismissed");
+    s = importCards(s, [action("a")], 9, scan);
+    expect(s.states.a.status).toBe("dismissed");
+    expect(s.states.a.due).toBeNull();
+    expect(s.states.a.addedAt).toBe(5);
+    expect(s.states.a.history.length).toBe(1);
+  });
+  test("不修改输入", () => {
+    const s0 = emptyState();
+    importCards(s0, [action("a")], 5, scan);
+    expect(s0.states).toEqual({});
+  });
+});
+
+describe("dismissCard", () => {
+  test("删除 → dismissed，due null，history 保留，今日组不含该 id", () => {
+    const cards: Card[] = [action("a"), action("b"), action("c"), action("d")];
+    let s = importCards(emptyState(), cards, 5, scan);
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["a", "b", "c"]);
+    s = recordResult(s, "a", "did", D);
+    s = dismissCard(s, "a");
+    expect(s.states.a.status).toBe("dismissed");
+    expect(s.states.a.due).toBeNull();
+    expect(s.states.a.history).toEqual([{ date: D, result: "did" }]);
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).not.toContain("a");
+    expect(s.queues[D].ids).toEqual(["b", "c"]);
+  });
+  test("删光当日组后 ensureQueue 补下一组", () => {
+    const cards: Card[] = [action("a"), action("b"), action("c"), action("d"), flash("f1"), flash("f2")];
+    let s = importCards(emptyState(), cards, 5, scan);
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["a", "b", "c"]);
+    for (const id of ["a", "b", "c"]) s = dismissCard(s, id);
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["d", "f1", "f2"]);
+    expect(s.states.d.status).toBe("active");
+    expect(["a", "b", "c"].every((id) => !s.queues[D].ids.includes(id))).toBe(true);
+  });
+  test("未知 id 返回原状态", () => {
+    const s = importCards(emptyState(), [action("a")], 5, scan);
+    expect(dismissCard(s, "nope")).toEqual(s);
   });
 });
