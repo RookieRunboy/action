@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { commitSelection, emptyState, ensureQueue, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
-import type { ActionCard, Card, CardsResponse, FlashCard, FolderScan } from "@/lib/types";
+import { advanceQueue, commitSelection, emptyState, ensureQueue, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
+import type { ActionCard, Card, CardsResponse, FlashCard, FolderScan, StateV2 } from "@/lib/types";
 
 const D = "2026-09-14";
 const scan: { token: string } & FolderScan = {
@@ -37,6 +37,16 @@ describe("parseState / storageKey", () => {
   test("往返序列化", () => {
     const s = commitSelection(emptyState(), [action("a")], new Set(["a"]), 5, scan);
     expect(parseState(JSON.stringify(s))).toEqual(s);
+  });
+  test("旧 {actions, flash} 队列被忽略", () => {
+    const s = parseState(JSON.stringify({
+      version: 2,
+      cards: {},
+      states: {},
+      queues: { [D]: { actions: ["a"], flash: ["f"] } },
+      folders: {},
+    }));
+    expect(s.queues).toEqual({});
   });
 });
 
@@ -84,34 +94,72 @@ describe("commitSelection", () => {
   });
 });
 
-describe("ensureQueue / recordResult", () => {
+function markGroup(s: StateV2, date: string) {
+  let next = s;
+  for (const id of next.queues[date].ids) {
+    const result = next.states[id].kind === "action" ? "did" as const : "remembered" as const;
+    next = recordResult(next, id, result, date);
+  }
+  return next;
+}
+
+describe("ensureQueue / recordResult / advanceQueue", () => {
   const cards: Card[] = [action("a"), action("b"), action("c"), action("d"), flash("f1"), flash("f2")];
-  test("ensureQueue 建立当日队列并激活新卡，重复调用不变", () => {
+  test("ensureQueue 建立当日混排组并激活新卡，重复调用冻结不变", () => {
     let s = commitSelection(emptyState(), cards, new Set(cards.map((c) => c.id)), 5, scan);
     s = ensureQueue(s, D);
-    expect(s.queues[D].actions.length).toBe(2);
-    expect(s.queues[D].flash.length).toBe(2);
+    expect(s.queues[D].ids).toEqual(["a", "b", "c"]);
+    expect(s.states.a.status).toBe("active");
+    expect(s.states.d.status).toBe("queued");
     const again = ensureQueue(s, D);
     expect(again).toEqual(s);
   });
-  test("recordResult did 追加历史；later 触发补位", () => {
+  test("recordResult 追加历史，但不自动换组、later 也不补位", () => {
     let s = commitSelection(emptyState(), cards, new Set(cards.map((c) => c.id)), 5, scan);
     s = ensureQueue(s, D);
-    const [first] = s.queues[D].actions;
-    s = recordResult(s, first, "did", D);
-    expect(s.states[first].history).toEqual([{ date: D, result: "did" }]);
-    expect(s.queues[D].actions.length).toBe(2);
-    // 第二天：first 到期(间隔1)，另外两张新卡可引入，上限 3
-    const D2 = "2026-09-15";
-    s = ensureQueue(s, D2);
-    expect(s.queues[D2].actions.length).toBe(3);
-    // D2 只引入了 1 张新卡（c），新卡额度还剩 1
-    const target = s.queues[D2].actions.find((id) => id !== first)!;
-    s = recordResult(s, target, "later", D2);
-    // later 不占上限 → 用剩余额度补进 d，队列变成 4 张（含一张「明天再来」）
-    expect(s.queues[D2].actions.length).toBe(4);
+    const ids = s.queues[D].ids;
+    s = recordResult(s, ids[0], "later", D);
+    expect(s.states[ids[0]].history).toEqual([{ date: D, result: "later" }]);
+    expect(s.states[ids[0]].due).toBe("2026-09-15");
+    expect(s.queues[D].ids).toEqual(ids);
+    expect(s.states.d.status).toBe("queued");
+  });
+  test("advanceQueue 未全部标记时不变", () => {
+    let s = commitSelection(emptyState(), cards, new Set(cards.map((c) => c.id)), 5, scan);
+    s = ensureQueue(s, D);
+    s = recordResult(s, s.queues[D].ids[0], "did", D);
+    const blocked = advanceQueue(s, D);
+    expect(blocked.queues[D].ids).toEqual(s.queues[D].ids);
+    expect(blocked.states.d.status).toBe("queued");
+  });
+  test("advanceQueue 全部标记后进入下一组；耗尽后为空且不绕回", () => {
+    let s = commitSelection(emptyState(), cards, new Set(cards.map((c) => c.id)), 5, scan);
+    s = ensureQueue(s, D);
+    s = markGroup(s, D);
+    s = advanceQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["d", "f1", "f2"]);
     expect(s.states.d.status).toBe("active");
-    expect(s.states[target].due).toBe("2026-09-16");
+    s = markGroup(s, D);
+    s = advanceQueue(s, D);
+    expect(s.queues[D].ids).toEqual([]);
+    expect(advanceQueue(s, D).queues[D].ids).toEqual([]);
+  });
+  test("同一天可连续完成超过 3 张行动和 5 张闪卡", () => {
+    const many: Card[] = [
+      ...["a1", "a2", "a3", "a4"].map(action),
+      ...["f1", "f2", "f3", "f4", "f5", "f6"].map(flash),
+    ];
+    let s = commitSelection(emptyState(), many, new Set(many.map((c) => c.id)), 5, scan);
+    s = ensureQueue(s, D);
+    const done = { action: 0, flash: 0 };
+    let guard = 0;
+    while (s.queues[D].ids.length && guard++ < 20) {
+      for (const id of s.queues[D].ids) done[s.states[id].kind]++;
+      s = markGroup(s, D);
+      s = advanceQueue(s, D);
+    }
+    expect(done).toEqual({ action: 4, flash: 6 });
+    expect(s.queues[D].ids).toEqual([]);
   });
   test("recordResult 对未知 id 返回原状态", () => {
     const s = ensureQueue(commitSelection(emptyState(), cards, new Set(["a"]), 5, scan), D);

@@ -28,14 +28,14 @@ export function TodayPage({ session, date }: { session: ClientSession; date: str
     setState((s) => recordResult(s, id, result, date));
   }, [date]);
 
-  const queue = state.queues[date] ?? { actions: [], flash: [] };
+  const queue = state.queues[date] ?? { ids: [] };
   const actions = useMemo(
-    () => queue.actions.map((id) => state.cards[id]).filter((c): c is ActionCard => !!c && c.kind === "action"),
-    [queue.actions, state.cards],
+    () => queue.ids.map((id) => state.cards[id]).filter((c): c is ActionCard => !!c && c.kind === "action"),
+    [queue.ids, state.cards],
   );
   const flashes = useMemo(
-    () => queue.flash.map((id) => state.cards[id]).filter((c): c is FlashCard => !!c && c.kind === "flash"),
-    [queue.flash, state.cards],
+    () => queue.ids.map((id) => state.cards[id]).filter((c): c is FlashCard => !!c && c.kind === "flash"),
+    [queue.ids, state.cards],
   );
 
   const empty = (
