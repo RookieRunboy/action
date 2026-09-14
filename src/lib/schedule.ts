@@ -46,7 +46,11 @@ function unmarked(state: CardState, date: string): boolean {
   return resultOn(state, date) === undefined;
 }
 
-/** 混排一组 ≤3。existing.ids 非空则冻结（丢掉 dismissed）；空或缺失则从到期卡再 queued 取。 */
+function keepPresent(states: Record<string, CardState>, ids: string[] | undefined): string[] {
+  return (ids ?? []).filter((id) => states[id] && states[id].status !== "dismissed");
+}
+
+/** 混排一组 ≤3。先丢掉 dismissed/缺失；有幸存者则冻结，否则从到期卡再 queued 取。 */
 export function buildGroup(
   states: Record<string, CardState>,
   date: string,
@@ -54,10 +58,8 @@ export function buildGroup(
 ): { queue: DayQueue; states: Record<string, CardState> } {
   const next: Record<string, CardState> = { ...states };
   const existingIds = existing && Array.isArray(existing.ids) ? existing.ids : undefined;
-  if (existingIds && existingIds.length > 0) {
-    const kept = existingIds.filter((id) => next[id] && next[id].status !== "dismissed");
-    return { queue: { ids: kept }, states: next };
-  }
+  const kept = keepPresent(next, existingIds);
+  if (kept.length > 0) return { queue: { ids: kept }, states: next };
 
   const due = Object.values(next)
     .filter((s) => unmarked(s, date) && s.status === "active" && s.due !== null && s.due <= date)
@@ -80,7 +82,7 @@ export function buildGroup(
 }
 
 export function groupComplete(states: Record<string, CardState>, date: string, queue: DayQueue): boolean {
-  return (queue.ids ?? []).every((id) => !!states[id] && resultOn(states[id], date) !== undefined);
+  return keepPresent(states, queue.ids).every((id) => resultOn(states[id], date) !== undefined);
 }
 
 /** 组内未全部标记则冻结原组；否则从剩余未标记取下一组，没有则空（不绕回）。 */

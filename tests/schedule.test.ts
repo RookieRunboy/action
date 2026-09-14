@@ -137,6 +137,19 @@ describe("buildGroup", () => {
     const { queue } = buildGroup(states, D, { ids: ["a1", "a2"] });
     expect(queue.ids).toEqual(["a2"]);
   });
+  test("当日组全部 dismissed 或缺失时选取下一组，不空置", () => {
+    const states = index([
+      { ...active("a1", "action", 0, D), status: "dismissed", due: null },
+      { ...active("a2", "action", 0, D), status: "dismissed", due: null },
+      queued("q1", "action", 1),
+      queued("q2", "flash", 2),
+      queued("q3", "action", 3),
+    ]);
+    const r = buildGroup(states, D, { ids: ["a1", "a2", "gone"] });
+    expect(r.queue.ids).toEqual(["q1", "q2", "q3"]);
+    expect(r.states.q1.status).toBe("active");
+    expect(r.states.q1.introducedAt).toBe(D);
+  });
   test("existing 为空或缺失则选取下一组", () => {
     const states = index([queued("q1", "action", 1), queued("q2", "flash", 2)]);
     expect(buildGroup(states, D).queue.ids).toEqual(["q1", "q2"]);
@@ -171,6 +184,19 @@ describe("groupComplete / advanceGroup", () => {
     expect(groupComplete(states, D, { ids: ["a1", "a2", "f1", "f2", "f3"] })).toBe(true);
     expect(groupComplete(index([active("a1", "action", 0, D), active("a2", "action", 0, D)]), D, { ids: ["a1", "a2"] })).toBe(false);
     expect(groupComplete(states, D, { ids: [] })).toBe(true);
+  });
+  test("groupComplete 忽略 dismissed 与缺失；幸存者都有结果则可 advance", () => {
+    const dismissed = { ...active("a1", "action", 0, D), status: "dismissed" as const, due: null };
+    const marked = applyResult(active("a2", "action", 0, D), "did", D);
+    expect(groupComplete(index([dismissed, marked]), D, { ids: ["a1", "a2", "gone"] })).toBe(true);
+    expect(groupComplete(index([dismissed, active("a2", "action", 0, D)]), D, { ids: ["a1", "a2"] })).toBe(false);
+    const next = advanceGroup(
+      index([dismissed, marked, queued("q1", "flash", 1)]),
+      D,
+      { ids: ["a1", "a2", "gone"] },
+    );
+    expect(next.queue.ids).toEqual(["q1"]);
+    expect(next.states.q1.status).toBe("active");
   });
   test("未全部标记时 advance 是 no-op", () => {
     const built = buildGroup(index([

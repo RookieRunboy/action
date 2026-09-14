@@ -165,6 +165,16 @@ describe("ensureQueue / recordResult / advanceQueue", () => {
     const s = ensureQueue(commitSelection(emptyState(), cards, new Set(["a"]), 5, scan), D);
     expect(recordResult(s, "nope", "did", D)).toEqual(s);
   });
+  test("当日组全部取消后 ensureQueue 立刻补下一组", () => {
+    let s = commitSelection(emptyState(), cards, new Set(cards.map((c) => c.id)), 5, scan);
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["a", "b", "c"]);
+    s = commitSelection(s, cards, new Set(["d", "f1", "f2"]), 6, scan);
+    expect(s.states.a.status).toBe("dismissed");
+    s = ensureQueue(s, D);
+    expect(s.queues[D].ids).toEqual(["d", "f1", "f2"]);
+    expect(s.states.d.status).toBe("active");
+  });
 });
 
 describe("selectionFor", () => {
