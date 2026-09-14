@@ -1,26 +1,505 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* 墙 · 墨 */
+  --wall: #1a2028;
+  --wall-2: #232b35;
+  --wall-ink: #c9ced6;
+  --wall-dim: #7c8590;
+  /* 纸 · 宣 */
+  --paper: #eef0ea;
+  --paper-2: #e3e6dd;
+  --paper-3: #d3d7cb;
+  --rule: #b8bdaf;
+  --ink: #171c22;
+  --ink-2: #4a525b;
+  --ink-3: #7b838c;
+  /* 朱砂 · 印 */
+  --seal: #c8321e;
+  --seal-2: #a52716;
+  --seal-ink: rgba(200, 50, 30, 0.9);
+  /* 藏青 · 链 */
+  --link: #2d4f7c;
+
+  --font-display: "Big Shoulders Display", "Helvetica Neue", Arial, sans-serif;
+  --font-brush: "Zhi Mang Xing", "Xingkai SC", "Kaiti SC", "KaiTi", cursive;
+  --font-song: "Noto Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-wall: var(--wall);
+  --color-wall-2: var(--wall-2);
+  --color-wall-ink: var(--wall-ink);
+  --color-wall-dim: var(--wall-dim);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-seal: var(--seal);
+  --color-seal-2: var(--seal-2);
+  --color-link: var(--link);
+  --font-display: var(--font-display);
+  --font-brush: var(--font-brush);
+  --font-song: var(--font-song);
+  --font-ui: var(--font-ui);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
+  background: var(--wall);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  min-height: 100dvh;
+  color: var(--wall-ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
+    radial-gradient(800px 500px at 100% 100%, rgba(200, 50, 30, 0.06), transparent 60%),
+    var(--wall);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(200, 50, 30, 0.25);
+}
+
+:focus-visible {
+  outline: 2px solid var(--seal);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* ───────── 日历纸 ───────── */
+.leaf {
+  position: relative;
+  color: var(--ink);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), transparent 30%),
+    var(--paper);
+  border-radius: 3px 3px 6px 6px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 2px 3px rgba(0, 0, 0, 0.25),
+    0 22px 40px -18px rgba(0, 0, 0, 0.7),
+    0 60px 80px -40px rgba(0, 0, 0, 0.6);
+}
+.leaf::before {
+  /* 上一页撕掉后留下的残边 */
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: -6px;
+  height: 8px;
+  background: var(--paper-3);
+  border-radius: 3px 3px 0 0;
+  clip-path: polygon(
+    0 100%, 2% 20%, 5% 90%, 9% 10%, 12% 80%, 16% 30%, 20% 95%, 24% 25%, 28% 85%, 33% 15%,
+    37% 90%, 41% 35%, 45% 100%, 49% 20%, 53% 80%, 57% 10%, 61% 95%, 66% 30%, 70% 85%, 74% 15%,
+    78% 90%, 82% 25%, 86% 100%, 90% 20%, 94% 85%, 98% 30%, 100% 100%
+  );
+  opacity: 0.9;
+}
+.leaf-holes {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 26px 0;
+}
+.leaf-holes i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--wall);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6),
+    0 -1px 1px rgba(0, 0, 0, 0.5) inset;
+}
+.leaf-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--rule) 8%, var(--rule) 92%, transparent);
+}
+.leaf-rule.double {
+  height: 3px;
+  background:
+    linear-gradient(90deg, transparent, var(--ink) 8%, var(--ink) 92%, transparent) top / 100% 1px no-repeat,
+    linear-gradient(90deg, transparent, var(--ink) 8%, var(--ink) 92%, transparent) bottom / 100% 1px no-repeat;
+}
+
+.date-num {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(88px, 16vw, 132px);
+  line-height: 0.86;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.song {
+  font-family: var(--font-song);
+}
+.brush {
+  font-family: var(--font-brush);
+}
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ───────── 宜 / 忌 标 ───────── */
+.mark {
+  font-family: var(--font-brush);
+  font-size: 30px;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  color: var(--ink);
+  flex: none;
+}
+.mark.taboo {
+  color: var(--ink-3);
+  border-color: var(--ink-3);
+}
+
+/* ───────── 行动条 ───────── */
+.act {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px dashed var(--rule);
+  transition: opacity 0.4s ease;
+}
+.act:last-child {
+  border-bottom: 0;
+}
+.act.done .act-title {
+  color: var(--ink-3);
+}
+.act.done .act-title span {
+  background-image: linear-gradient(var(--seal), var(--seal));
+  background-repeat: no-repeat;
+  background-size: 100% 1.5px;
+  background-position: 0 58%;
+}
+.box {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 3px;
+  border: 1.5px solid var(--ink);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.2s;
+}
+.box:hover {
+  border-color: var(--seal);
+}
+.box:checked {
+  border-color: var(--seal-2);
+}
+.box:checked::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 2px;
+  width: 7px;
+  height: 13px;
+  border: solid var(--seal);
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+.act-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.45;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.act-source {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.act-source a {
+  color: var(--link);
+  text-decoration: underline;
+  text-decoration-color: rgba(45, 79, 124, 0.35);
+  text-underline-offset: 3px;
+}
+.act-source a:hover {
+  text-decoration-color: var(--link);
+}
+.quote {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--paper-3);
+  font-family: var(--font-song);
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+
+/* ───────── 印 ───────── */
+.stamp {
+  position: absolute;
+  right: 6px;
+  top: 8px;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-brush);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--seal-ink);
+  border: 3px solid var(--seal-ink);
+  border-radius: 8px;
+  transform: rotate(-9deg);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  mask-image: radial-gradient(circle at 30% 40%, #000 55%, rgba(0, 0, 0, 0.85) 70%, rgba(0, 0, 0, 0.55) 100%);
+  animation: stamp-in 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+.stamp.big {
+  right: 22px;
+  bottom: 18px;
+  top: auto;
+  width: 96px;
+  height: 96px;
+  font-size: 34px;
+  letter-spacing: 0.06em;
+  border-width: 4px;
+  border-radius: 10px;
+  transform: rotate(-12deg);
+  writing-mode: vertical-rl;
+  padding: 6px;
+}
+@keyframes stamp-in {
+  0% {
+    opacity: 0;
+    transform: rotate(-9deg) scale(1.7);
+  }
+  60% {
+    opacity: 1;
+    transform: rotate(-9deg) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-9deg) scale(1);
+  }
+}
+.stamp.big {
+  animation-name: stamp-in-big;
+}
+@keyframes stamp-in-big {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(1.8);
+  }
+  60% {
+    opacity: 1;
+    transform: rotate(-12deg) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+/* ───────── 墙上的小卡 ───────── */
+.card {
+  background: var(--wall-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  color: var(--wall-ink);
+}
+.bar {
+  display: flex;
+  height: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  transition: width 0.6s ease;
+}
+
+/* ───────── 按钮 ───────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.08s;
+  line-height: 1.2;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-seal {
+  background: var(--seal);
+  color: #fff;
+}
+.btn-seal:hover:not(:disabled) {
+  background: var(--seal-2);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--wall-ink);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.btn-ink {
+  background: transparent;
+  border-color: var(--ink);
+  color: var(--ink);
+  padding: 7px 12px;
+  font-size: 13px;
+}
+.btn-ink:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn-text {
+  background: transparent;
+  color: var(--ink-2);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.btn-text:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.select {
+  appearance: none;
+  background: var(--wall-2);
+  color: var(--wall-ink);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  padding: 8px 32px 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23c9ced6' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+/* ───────── 回访面板 ───────── */
+.reply {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--paper-2);
+  border-radius: 4px;
+  border: 1px solid var(--paper-3);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.reply textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-family: var(--font-song);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink);
+  outline: none;
+}
+
+/* ───────── 骨架 ───────── */
+.shimmer {
+  background: linear-gradient(90deg, var(--paper-2) 25%, var(--paper-3) 50%, var(--paper-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 3px;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.5s ease both;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.list-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+}
+.list-row:last-child {
+  border-bottom: 0;
+}
+.list-row a {
+  color: var(--wall-ink);
+}
+.list-row a:hover {
+  color: #fff;
+}
+.tag {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--wall-dim);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp,
+  .stamp.big,
+  .fade-in,
+  .shimmer {
+    animation: none !important;
+  }
+  .bar > i {
+    transition: none;
+  }
 }
