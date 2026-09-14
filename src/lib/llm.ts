@@ -105,3 +105,6 @@ export async function chatJSON<T>(system: string, user: string, opts: ChatOption
   const text = await chatText(system, user, opts);
   return extractJSON<T>(text);
 }
+
+export type ChatFn = <T>(system: string, user: string, opts?: ChatOptions) => Promise<T>;
+

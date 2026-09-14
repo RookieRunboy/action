@@ -2,14 +2,16 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const ROOT = path.join(process.cwd(), ".cache");
-
-export function hashKey(...parts: (string | number)[]): string {
-  return crypto.createHash("sha1").update(parts.join("|")).digest("hex").slice(0, 20);
+function root() {
+  return process.env.ZHIXING_CACHE_DIR || path.join(process.cwd(), ".cache");
 }
 
 function fileFor(ns: string, key: string) {
-  return path.join(ROOT, ns, `${key}.json`);
+  return path.join(root(), ns, `${key}.json`);
+}
+
+export function hashKey(...parts: (string | number)[]): string {
+  return crypto.createHash("sha1").update(parts.join("|")).digest("hex").slice(0, 20);
 }
 
 interface Envelope<T> {
@@ -21,7 +23,7 @@ export async function cacheGet<T>(ns: string, key: string, ttlMs = Infinity): Pr
   try {
     const raw = await fs.readFile(fileFor(ns, key), "utf8");
     const env = JSON.parse(raw) as Envelope<T>;
-    if (Date.now() - env.savedAt > ttlMs) return null;
+    if (Date.now() - env.savedAt >= ttlMs) return null;
     return env.value;
   } catch {
     return null;
@@ -41,4 +43,27 @@ export async function cached<T>(ns: string, key: string, ttlMs: number, fn: () =
   const value = await fn();
   await cacheSet(ns, key, value);
   return value;
+}
+
+/**
+ * 带快照回退的缓存：命中且未过期直接返回；过期则重拉，重拉失败时回退旧快照并标记 stale。
+ * 快照永不删除（规范 §6）。
+ */
+export async function cachedWithFallback<T>(
+  ns: string,
+  key: string,
+  ttlMs: number,
+  fn: () => Promise<T>,
+): Promise<{ value: T; stale: boolean }> {
+  const fresh = await cacheGet<T>(ns, key, ttlMs);
+  if (fresh !== null) return { value: fresh, stale: false };
+  try {
+    const value = await fn();
+    await cacheSet(ns, key, value);
+    return { value, stale: false };
+  } catch (e) {
+    const old = await cacheGet<T>(ns, key);
+    if (old !== null) return { value: old, stale: true };
+    throw e;
+  }
 }

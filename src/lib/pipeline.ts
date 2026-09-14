@@ -1,15 +1,31 @@
-import type { Conversion, FavItem, Kind, PlanCounts, PlanResponse, SortedItem, TodayAction } from "./types";
+import type { ActionCard, Card, CardsResponse, FavItem, FlashCard, SkippedItem } from "./types";
 import { cacheGet, cacheSet, hashKey } from "./cache";
-import { chatJSON, providerLabel } from "./llm";
+import { chatJSON, providerLabel, type ChatFn } from "./llm";
 import { getFavlistItems, getFavlists } from "./zhihu";
-import { CONVERT_SYSTEM, SORT_SYSTEM } from "./prompts";
-import { daysOnShelf } from "./dates";
+import { ACTION_SYSTEM, FLASH_SYSTEM, SORT_SYSTEM } from "./prompts";
+import { normalizeTags } from "./tags";
 
 const DAY = 24 * 60 * 60 * 1000;
-const DOMAINS = ["健康", "学习", "效率", "职场", "理财", "人际", "表达", "心智", "技术", "生活", "其他"];
+const SORT_BATCH = 24;
+const CONVERT_BATCH = 12;
+const LIMITS = { action: 40, why: 60, replyDraft: 90, front: 40, back: 80, reason: 30, sourceQuote: 60 };
 
-function clip(s: string, n: number) {
-  const t = (s || "").trim();
+export interface ScanInput {
+  identity: string;
+  folderToken: string;
+  oauthToken?: string;
+  refresh?: boolean;
+}
+export interface ScanDeps {
+  chat?: ChatFn;
+  fetchFolders?: typeof getFavlists;
+  fetchItems?: typeof getFavlistItems;
+  provider?: string;
+  now?: () => number;
+}
+
+function clip(s: unknown, n: number): string {
+  const t = typeof s === "string" ? s.trim() : "";
   return t.length > n ? t.slice(0, n) : t;
 }
 
@@ -19,194 +35,183 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-function describeItem(it: FavItem) {
-  const author = it.author?.name ? it.author.name : "匿名";
+function describeItem(it: FavItem): string {
+  const author = it.author?.name || "匿名";
   return `[${it.id}] ${it.title}｜${author}｜赞 ${it.likeCount}｜摘要：${clip(it.summary, 300) || "（无摘要）"}`;
 }
 
-interface SortRow {
-  id: string;
-  kind: string;
-  domain: string;
-  reason: string;
-}
+// ───────── 分拣 ─────────
 
-async function sortBatch(items: FavItem[]): Promise<Map<string, SortRow>> {
-  const user = items.map(describeItem).join("\n");
-  const out = await chatJSON<{ items: SortRow[] }>(SORT_SYSTEM, user, { temperature: 0.2, maxTokens: 4000 });
-  const map = new Map<string, SortRow>();
-  for (const row of out.items || []) if (row?.id) map.set(row.id, row);
-  return map;
-}
+type SortKind = "action" | "knowledge" | "skip";
+interface SortRow { id: string; kind: SortKind; reason: string }
 
-function normalizeKind(k: string): Kind {
-  const s = (k || "").toLowerCase();
+function normalizeKind(k: unknown): SortKind {
+  const s = String(k || "").toLowerCase();
   if (s.startsWith("action")) return "action";
   if (s.startsWith("know")) return "knowledge";
   return "skip";
 }
 
-/** 对一个收藏夹做分拣（24 小时缓存） */
-export async function sortItems(identity: string, items: FavItem[], refresh = false): Promise<SortedItem[]> {
-  const key = hashKey("sort", identity, ...items.map((i) => i.id));
-  if (!refresh) {
-    const hit = await cacheGet<SortedItem[]>("sort", key, DAY);
-    if (hit) return hit;
+/** 返回 id → 分拣结果；AI 漏掉的条目不在结果中。24 小时缓存。 */
+export async function sortItems(items: FavItem[], chat: ChatFn, opts: { identity: string; refresh?: boolean }): Promise<Map<string, SortRow>> {
+  const key = hashKey("sort-v2", opts.identity, ...items.map((i) => i.id));
+  if (!opts.refresh) {
+    const hit = await cacheGet<SortRow[]>("sort", key, DAY);
+    if (hit) return new Map(hit.map((r) => [r.id, r]));
   }
-  const batches = chunk(items, 24);
-  const maps = await Promise.all(batches.map(sortBatch));
-  const merged = new Map<string, SortRow>();
-  maps.forEach((m) => m.forEach((v, k) => merged.set(k, v)));
-
-  const sorted: SortedItem[] = items.map((it) => {
-    const row = merged.get(it.id);
-    const domain = row && DOMAINS.includes(row.domain) ? row.domain : "其他";
-    return {
-      ...it,
-      kind: row ? normalizeKind(row.kind) : "skip",
-      domain,
-      reason: row ? clip(row.reason, 30) : "没能判断这条内容",
-    };
-  });
-  await cacheSet("sort", key, sorted);
-  return sorted;
+  const batches = await Promise.all(
+    chunk(items, SORT_BATCH).map((b) => chat<{ items?: Partial<SortRow>[] }>(SORT_SYSTEM, b.map(describeItem).join("\n"), { temperature: 0.2, maxTokens: 4000 })),
+  );
+  const rows: SortRow[] = [];
+  const ids = new Set(items.map((i) => i.id));
+  for (const out of batches) {
+    for (const r of out.items || []) {
+      if (!r?.id || !ids.has(r.id)) continue;
+      rows.push({ id: r.id, kind: normalizeKind(r.kind), reason: clip(r.reason, LIMITS.reason) || "没有说明" });
+    }
+  }
+  await cacheSet("sort", key, rows);
+  return new Map(rows.map((r) => [r.id, r]));
 }
 
-function fuzzyContains(hay: string, needle: string) {
-  const norm = (s: string) => s.replace(/[\s，。！？、；：“”‘’"'（）()【】\[\]…—\-·,.!?;:]/g, "");
-  const h = norm(hay);
-  const n = norm(needle);
-  return n.length >= 4 && h.includes(n);
+// ───────── 引句校验 ─────────
+
+const PUNCT = /[\s，。！？、；：“”‘’"'（）()【】\[\]…—\-·,.!?;:]/g;
+
+function firstSentence(summary: string): string {
+  const clean = summary.replace(/\[图片\]/g, "").trim();
+  const m = clean.match(/^[^。！？!?]{2,}[。！？!?]?/);
+  return clip(m ? m[0] : clean, LIMITS.sourceQuote);
 }
 
-function firstSentence(s: string, n = 50) {
-  const clean = s.replace(/\[图片\]/g, "").trim();
-  const m = clean.match(/^[^。！？!?]{4,}[。！？!?]?/);
-  return clip(m ? m[0] : clean, n);
+/** 引句必须是摘要原文（忽略标点空白）；否则退回摘要第一句 */
+export function validateQuote(summary: string, quote: unknown): string {
+  const q = clip(quote, LIMITS.sourceQuote);
+  const norm = (s: string) => s.replace(PUNCT, "");
+  if (q && norm(q).length >= 4 && norm(summary).includes(norm(q))) return q;
+  return firstSentence(summary);
 }
 
-/** 把若干 action 条目转成两分钟行动（按条缓存，永久） */
-export async function convertItems(items: SortedItem[]): Promise<Map<string, Conversion>> {
-  const result = new Map<string, Conversion>();
-  const missing: SortedItem[] = [];
+// ───────── 转化 ─────────
+
+function toSource(it: FavItem, folderToken: string) {
+  return {
+    folderToken,
+    source: {
+      url: it.url,
+      title: it.title,
+      contentType: it.contentType,
+      favTime: it.favTime,
+      likeCount: it.likeCount,
+      summary: it.summary,
+      author: it.author?.name ? { name: it.author.name, url: it.author.url } : undefined,
+    },
+  };
+}
+
+interface RawAction { id: string; action?: unknown; why?: unknown; sourceQuote?: unknown; replyDraft?: unknown; tags?: unknown }
+interface RawFlash { id: string; front?: unknown; back?: unknown; sourceQuote?: unknown; tags?: unknown }
+
+async function convert<TRaw extends { id: string }, TCard extends Card>(
+  ns: string,
+  system: string,
+  items: FavItem[],
+  chat: ChatFn,
+  build: (it: FavItem, raw: TRaw) => TCard | null,
+): Promise<TCard[]> {
+  const result = new Map<string, TCard>();
+  const missing: FavItem[] = [];
   for (const it of items) {
-    const hit = await cacheGet<Conversion>("convert", it.id);
+    const hit = await cacheGet<TCard>(ns, it.id);
     if (hit) result.set(it.id, hit);
     else missing.push(it);
   }
-  if (missing.length) {
-    const user = missing
-      .map((it) => `${describeItem(it)}｜领域：${it.domain}`)
-      .join("\n");
-    const out = await chatJSON<{ items: Conversion[] }>(CONVERT_SYSTEM, user, { temperature: 0.5, maxTokens: 3000 });
-    const byId = new Map((out.items || []).map((c) => [c.id, c]));
-    for (const it of missing) {
-      const c = byId.get(it.id);
-      if (!c || !c.action) continue;
-      const quote = c.sourceQuote && fuzzyContains(it.summary, c.sourceQuote) ? clip(c.sourceQuote, 60) : firstSentence(it.summary);
-      const conv: Conversion = {
-        id: it.id,
-        action: clip(c.action, 40),
-        why: clip(c.why, 60),
-        sourceQuote: quote,
-        replyDraft: clip(c.replyDraft, 90),
-      };
-      await cacheSet("convert", it.id, conv);
-      result.set(it.id, conv);
-    }
-  }
-  return result;
-}
-
-function mulberry32(seed: string) {
-  let h = 1779033703 ^ seed.length;
-  for (let i = 0; i < seed.length; i++) {
-    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353);
-    h = (h << 13) | (h >>> 19);
-  }
-  return () => {
-    h = Math.imul(h ^ (h >>> 16), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    h ^= h >>> 16;
-    return (h >>> 0) / 4294967296;
-  };
-}
-
-/** 确定性地为某一天挑出候选：加权随机 + 领域多样性 */
-export function pickForDay(actions: SortedItem[], seed: string, exclude: Set<string>, count: number): SortedItem[] {
-  const rand = mulberry32(seed);
-  const pool = actions
-    .filter((a) => !exclude.has(a.id))
-    .map((a) => {
-      const w = 1 + Math.log1p(Math.max(0, a.likeCount)) / 4 + Math.min(daysOnShelf(a.favTime), 400) / 400;
-      return { a, key: Math.pow(rand(), 1 / w) };
-    })
-    .sort((x, y) => y.key - x.key)
-    .map((x) => x.a);
-
-  const picked: SortedItem[] = [];
-  const seen = new Set<string>();
-  for (const a of pool) {
-    if (picked.length >= count) break;
-    if (seen.has(a.domain)) continue;
-    picked.push(a);
-    seen.add(a.domain);
-  }
-  for (const a of pool) {
-    if (picked.length >= count) break;
-    if (!picked.includes(a)) picked.push(a);
-  }
-  return picked;
-}
-
-export function countKinds(sorted: SortedItem[]): PlanCounts {
-  return sorted.reduce(
-    (acc, s) => {
-      acc.total++;
-      acc[s.kind]++;
-      return acc;
-    },
-    { total: 0, action: 0, knowledge: 0, skip: 0 } as PlanCounts,
+  const batches = await Promise.all(
+    chunk(missing, CONVERT_BATCH).map((b) => chat<{ items?: TRaw[] }>(system, b.map(describeItem).join("\n"), { temperature: 0.5, maxTokens: 3500 })),
   );
+  const byId = new Map<string, TRaw>();
+  for (const out of batches) for (const r of out.items || []) if (r?.id) byId.set(r.id, r);
+  for (const it of missing) {
+    const raw = byId.get(it.id);
+    const card = raw ? build(it, raw) : null;
+    if (!card) continue;
+    await cacheSet(ns, it.id, card);
+    result.set(it.id, card);
+  }
+  return items.map((it) => result.get(it.id)).filter((c): c is TCard => !!c);
 }
 
-export interface PlanInput {
-  identity: string;
-  folderToken: string;
-  date: string;
-  exclude: string[];
-  oauthToken?: string;
-  refresh?: boolean;
+export function toActionCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<ActionCard[]> {
+  return convert<RawAction, ActionCard>("convert-a", ACTION_SYSTEM, items, chat, (it, raw) => {
+    const action = clip(raw.action, LIMITS.action);
+    if (!action) return null;
+    return {
+      id: it.id,
+      kind: "action",
+      ...toSource(it, folderToken),
+      action,
+      why: clip(raw.why, LIMITS.why),
+      replyDraft: clip(raw.replyDraft, LIMITS.replyDraft),
+      sourceQuote: validateQuote(it.summary, raw.sourceQuote),
+      tags: normalizeTags(raw.tags),
+      reason: reasons.get(it.id) || "",
+    };
+  });
 }
 
-export async function buildPlan(input: PlanInput): Promise<PlanResponse> {
-  const { identity, folderToken, date, oauthToken } = input;
-  const folders = await getFavlists(identity, oauthToken);
+export function toFlashCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<FlashCard[]> {
+  return convert<RawFlash, FlashCard>("convert-f", FLASH_SYSTEM, items, chat, (it, raw) => {
+    const front = clip(raw.front, LIMITS.front);
+    const back = clip(raw.back, LIMITS.back);
+    if (!front || !back) return null;
+    return {
+      id: it.id,
+      kind: "flash",
+      ...toSource(it, folderToken),
+      front,
+      back,
+      sourceQuote: validateQuote(it.summary, raw.sourceQuote),
+      tags: normalizeTags(raw.tags),
+      reason: reasons.get(it.id) || "",
+    };
+  });
+}
+
+// ───────── 入口 ─────────
+
+export async function scanFolder(input: ScanInput, deps: ScanDeps = {}): Promise<CardsResponse> {
+  const chat = deps.chat ?? (chatJSON as ChatFn);
+  const fetchFolders = deps.fetchFolders ?? getFavlists;
+  const fetchItems = deps.fetchItems ?? getFavlistItems;
+  const { identity, folderToken, oauthToken, refresh } = input;
+
+  const [{ folders, stale: s1 }, { items, stale: s2 }] = await Promise.all([
+    fetchFolders(identity, oauthToken),
+    fetchItems(identity, folderToken, oauthToken, 100),
+  ]);
   const folder = folders.find((f) => f.urlToken === folderToken);
-  const { items } = await getFavlistItems(identity, folderToken, oauthToken, 100);
-  const sorted = items.length ? await sortItems(identity, items, input.refresh) : [];
-  const counts = countKinds(sorted);
+  const title = folder?.title || "收藏夹";
 
-  const actions = sorted.filter((s) => s.kind === "action");
-  const exclude = new Set(input.exclude);
-  const candidates = pickForDay(actions, `${identity}|${folderToken}|${date}`, exclude, 6);
-  const conversions = await convertItems(candidates);
+  const sorted = items.length ? await sortItems(items, chat, { identity, refresh }) : new Map<string, SortRow>();
+  const reasons = new Map([...sorted].map(([id, r]) => [id, r.reason]));
+  const actionItems = items.filter((i) => sorted.get(i.id)?.kind === "action");
+  const flashItems = items.filter((i) => sorted.get(i.id)?.kind === "knowledge");
+  const skipped: SkippedItem[] = items
+    .filter((i) => sorted.get(i.id)?.kind === "skip")
+    .map((i) => ({ id: i.id, title: i.title, url: i.url, reason: reasons.get(i.id) || "" }));
 
-  const toToday = (s: SortedItem): TodayAction | null => {
-    const c = conversions.get(s.id);
-    if (!c) return null;
-    return { ...s, ...c, daysOnShelf: daysOnShelf(s.favTime) };
-  };
-  const converted = candidates.map(toToday).filter((x): x is TodayAction => x !== null);
+  const [actions, flashes] = await Promise.all([
+    actionItems.length ? toActionCards(actionItems, chat, folderToken, reasons) : Promise.resolve([]),
+    flashItems.length ? toFlashCards(flashItems, chat, folderToken, reasons) : Promise.resolve([]),
+  ]);
+  const cards: Card[] = [...actions, ...flashes];
 
   return {
-    date,
-    folder: folder?.title || "收藏夹",
-    counts,
-    today: converted.slice(0, 3),
-    spares: converted.slice(3),
-    knowledge: sorted.filter((s) => s.kind === "knowledge"),
-    skipped: sorted.filter((s) => s.kind === "skip"),
-    provider: providerLabel(),
+    folder: { urlToken: folderToken, title },
+    counts: { total: items.length, action: actions.length, flash: flashes.length, skip: skipped.length },
+    cards,
+    skipped,
+    provider: deps.provider ?? providerLabel(),
+    stale: s1 || s2,
   };
 }

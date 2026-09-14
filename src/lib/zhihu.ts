@@ -1,8 +1,9 @@
 import type { ContentType, FavFolder, FavItem } from "./types";
-import { cached, hashKey } from "./cache";
+import { cachedWithFallback, hashKey } from "./cache";
 
 const BASE = "https://developer.zhihu.com";
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 export class ZhihuError extends Error {
   constructor(public code: number, message: string, public status?: number) {
@@ -116,9 +117,9 @@ function normalizeItem(raw: RawItem): FavItem {
   };
 }
 
-/** 收藏夹列表（6 小时缓存，避免消耗额度） */
-export async function getFavlists(identity: string, oauthToken?: string): Promise<FavFolder[]> {
-  return cached("zhihu", hashKey("favlists", identity), 6 * HOUR, async () => {
+/** 收藏夹列表（24 小时缓存，失败回退快照） */
+export async function getFavlists(identity: string, oauthToken?: string): Promise<{ folders: FavFolder[]; stale: boolean }> {
+  const { value, stale } = await cachedWithFallback("zhihu", hashKey("favlists", identity), DAY, async () => {
     const data = await zhihuGet<{ Items: RawFavlist[] }>("/api/v1/user/favlists", { Limit: 50 }, oauthToken);
     return (data.Items || []).map((f) => ({
       urlToken: String(f.UrlToken),
@@ -128,18 +129,19 @@ export async function getFavlists(identity: string, oauthToken?: string): Promis
       isPublic: !!f.IsPublic,
     }));
   });
+  return { folders: value, stale };
 }
 
-/** 指定收藏夹内容，最多 max 条（分页 50/页） */
+/** 指定收藏夹内容，最多 max 条（分页 50/页，24 小时缓存，失败回退快照） */
 export async function getFavlistItems(
   identity: string,
   token: string,
   oauthToken?: string,
   max = 100,
-): Promise<{ items: FavItem[]; total: number }> {
-  return cached("zhihu", hashKey("favitems", identity, token, max), 6 * HOUR, async () => {
+): Promise<{ items: FavItem[]; total: number; stale: boolean }> {
+  const { value, stale } = await cachedWithFallback("zhihu", hashKey("favitems", identity, token, max), DAY, async () => {
     const items: FavItem[] = [];
-    let offset: number = 0;
+    let offset = 0;
     let total = 0;
     for (let page = 0; page < Math.ceil(max / 50); page++) {
       const data = await zhihuGet<{ Items: RawItem[]; Paging: Paging }>(
@@ -156,4 +158,5 @@ export async function getFavlistItems(
     }
     return { items, total };
   });
+  return { ...value, stale };
 }
