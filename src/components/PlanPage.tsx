@@ -2,24 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Card, CardsResponse, FavFolder, StateV2 } from "@/lib/types";
-import { commitSelection, emptyState, loadState, saveState, selectionFor } from "@/lib/state";
+import type { Card, CardsResponse, StateV2 } from "@/lib/types";
+import { commitSelection, emptyState, loadLibrary, loadState, saveLibrary, saveState, selectionFor } from "@/lib/state";
 import { AppShell, type ClientSession } from "./AppShell";
 import { CandidateRow } from "./CandidateRow";
 import { TagChips } from "./TagChips";
-
-/** 体验模式默认打开示例效果最好的公开收藏夹；其余情况取列表第一个 */
-function preferred(fs: FavFolder[]): string {
-  const demoDefault = fs.find((f) => f.title === "运动健康");
-  return (demoDefault ?? fs[0])?.urlToken || "";
-}
 
 export function PlanPage({ session }: { session: ClientSession }) {
   const router = useRouter();
   const [state, setState] = useState<StateV2>(emptyState);
   const [hydrated, setHydrated] = useState(false);
-  const [folders, setFolders] = useState<FavFolder[] | null>(null);
-  const [folder, setFolder] = useState("");
   const [data, setData] = useState<CardsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,60 +22,39 @@ export function PlanPage({ session }: { session: ClientSession }) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    const s = loadState(session.identity);
-    setState(s);
-    if (s.lastFolder) setFolder(s.lastFolder);
+    const lib = loadLibrary(session.identity);
+    setState(loadState(session.identity));
+    setData(lib);
     setHydrated(true);
+    if (!lib) setLoading(true);
+  }, [session.identity]);
+
+  const ingest = useCallback(async () => {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setLoading(true);
+    setError(null);
+    setTag(null);
+    try {
+      const r = await fetch("/api/cards", { signal: ac.signal });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "读取收藏失败。");
+      const lib = j as CardsResponse;
+      saveLibrary(session.identity, lib);
+      setData(lib);
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setError((e as Error).message);
+    } finally {
+      if (abortRef.current === ac) setLoading(false);
+    }
   }, [session.identity]);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch("/api/favlists")
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "读取收藏夹失败。");
-        return j.folders as FavFolder[];
-      })
-      .then((fs) => {
-        if (cancelled) return;
-        setFolders(fs);
-        setFolder((cur) => (cur && fs.some((f) => f.urlToken === cur) ? cur : preferred(fs)));
-      })
-      .catch((e: Error) => !cancelled && setError(e.message));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const scan = useCallback(
-    async (refresh = false) => {
-      if (!folder) return;
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-      setLoading(true);
-      setError(null);
-      setTag(null);
-      try {
-        const r = await fetch(`/api/cards?folder=${folder}${refresh ? "&refresh=1" : ""}`, { signal: ac.signal });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "扫描收藏夹失败。");
-        setData(j as CardsResponse);
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-        setError((e as Error).message);
-      } finally {
-        if (abortRef.current === ac) setLoading(false);
-      }
-    },
-    [folder],
-  );
-
-  useEffect(() => {
-    if (!hydrated || !folder) return;
-    setData(null);
-    scan(false);
-  }, [folder, hydrated, scan]);
+    if (!hydrated || data || error) return;
+    void ingest();
+  }, [hydrated, data, error, ingest]);
 
   useEffect(() => {
     if (data) setSelected(selectionFor(state, data.cards));
@@ -128,38 +99,15 @@ export function PlanPage({ session }: { session: ClientSession }) {
   const pct = (n: number) => (c && c.total ? `${(n / c.total) * 100}%` : "0%");
 
   return (
-    <AppShell
-      active="plan"
-      session={session}
-      right={
-        <>
-          {folders && folders.length > 0 && (
-            <label className="flex items-center gap-2 text-sm text-wall-dim">
-              <span className="hidden sm:inline">收藏夹</span>
-              <select className="select" value={folder} onChange={(e) => setFolder(e.target.value)} aria-label="选择收藏夹">
-                {folders.map((f) => (
-                  <option key={f.urlToken} value={f.urlToken}>
-                    {f.title}
-                    {f.isPublic ? "" : "（私密）"}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button type="button" className="btn btn-ghost" onClick={() => scan(true)} disabled={loading || !folder}>
-            重新分拣
-          </button>
-        </>
-      }
-    >
+    <AppShell active="plan" session={session}>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,1fr)] lg:items-start">
         <section className="leaf px-7 py-6 sm:px-9">
           <p className="eyebrow">筹划</p>
-          <h1 className="song mt-1 text-[22px] font-semibold text-ink">从收藏夹里挑出想养成的</h1>
+          <h1 className="song mt-1 text-[22px] font-semibold text-ink">从收藏里挑出想养成的</h1>
           <p className="mt-1 text-sm text-ink-2">「做」是两分钟能完成的动作，「记」是翻面自测的闪卡。默认全选，取消不想要的。</p>
 
           {loading && (
-            <div className="mt-6 space-y-5" aria-label="正在扫描">
+            <div className="mt-6 space-y-5" aria-label="正在读收藏">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="grid grid-cols-[24px_32px_1fr] gap-3">
                   <div className="shimmer h-6 w-6" />
@@ -170,22 +118,22 @@ export function PlanPage({ session }: { session: ClientSession }) {
                   </div>
                 </div>
               ))}
-              <p className="text-xs text-ink-3">正在读你的收藏夹，分拣哪些能做、哪些该记、哪些该放过……大约 40 秒。</p>
+              <p className="text-xs text-ink-3">第一次把收藏收进来，分拣哪些能做、哪些该记……大约一分钟。</p>
             </div>
           )}
 
           {!loading && error && (
             <div className="mt-6">
               <p className="song text-ink">{error}</p>
-              <button type="button" className="btn btn-ink mt-3" onClick={() => scan(false)}>再试一次</button>
+              <button type="button" className="btn btn-ink mt-3" onClick={() => void ingest()}>再试一次</button>
             </div>
           )}
 
           {!loading && !error && data && data.counts.total === 0 && (
-            <p className="song mt-6 text-ink">这个收藏夹是空的，换一个试试。</p>
+            <p className="song mt-6 text-ink">收藏里还是空的。去知乎收藏几篇真正想做的，再来登录。</p>
           )}
           {!loading && !error && data && data.counts.total > 0 && data.cards.length === 0 && (
-            <p className="song mt-6 text-ink">{data.counts.total} 条里没有能变成卡片的。换一个收藏夹，或先去知乎收藏几篇真正想做的。</p>
+            <p className="song mt-6 text-ink">{data.counts.total} 条里没有能变成卡片的。去知乎收藏几篇真正想做的再来。</p>
           )}
 
           {!loading && !error && data && data.cards.length > 0 && (
@@ -240,11 +188,10 @@ export function PlanPage({ session }: { session: ClientSession }) {
                   ? `${c.total} 条里只有 ${c.action + c.flash} 条能变成卡片。收藏得多，不等于学到得多。`
                   : `${c.total} 条里有 ${c.action + c.flash} 条能变成卡片，这是个干货密度很高的收藏夹。`}
               </p>
-              {data?.stale && <p className="mt-2 text-[11px] text-wall-dim">知乎接口暂时不可用，用的是本地快照。</p>}
             </div>
           )}
           {data && (
-            <p className="px-1 text-[11px] leading-relaxed text-wall-dim">分拣与转化：{data.provider}。只读取标题与摘要，结果缓存在本地。</p>
+            <p className="px-1 text-[11px] leading-relaxed text-wall-dim">分拣与转化：{data.provider}。只读取标题与摘要，结果保存在本浏览器。</p>
           )}
         </aside>
       </div>

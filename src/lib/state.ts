@@ -1,4 +1,4 @@
-import type { Card, CardState, FolderScan, Result, StateV2 } from "./types";
+import type { Card, CardsResponse, CardState, FolderScan, Result, StateV2 } from "./types";
 import { applyResult, buildQueue, newCardState } from "./schedule";
 
 export function emptyState(): StateV2 {
@@ -7,6 +7,45 @@ export function emptyState(): StateV2 {
 
 export function storageKey(identity: string): string {
   return `zhixing:v2:${identity}`;
+}
+
+export function libraryKey(identity: string): string {
+  return `zhixing:v2:library:${identity}`;
+}
+
+export function parseLibrary(raw: string | null): CardsResponse | null {
+  if (!raw) return null;
+  try {
+    const p = JSON.parse(raw) as Partial<CardsResponse>;
+    if (!p || !Array.isArray(p.cards) || !p.folder || !p.counts) return null;
+    return {
+      folder: p.folder,
+      counts: p.counts,
+      cards: p.cards,
+      skipped: Array.isArray(p.skipped) ? p.skipped : [],
+      provider: typeof p.provider === "string" ? p.provider : "",
+      stale: !!p.stale,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function loadLibrary(identity: string): CardsResponse | null {
+  try {
+    return parseLibrary(globalThis.localStorage?.getItem(libraryKey(identity)) ?? null);
+  } catch {
+    return null;
+  }
+}
+
+export function saveLibrary(identity: string, data: CardsResponse): boolean {
+  try {
+    globalThis.localStorage?.setItem(libraryKey(identity), JSON.stringify(data));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseState(raw: string | null): StateV2 {

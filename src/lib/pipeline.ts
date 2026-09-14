@@ -9,6 +9,27 @@ const DAY = 24 * 60 * 60 * 1000;
 const SORT_BATCH = 24;
 const CONVERT_BATCH = 12;
 const LIMITS = { action: 40, why: 60, replyDraft: 90, front: 40, back: 80, reason: 30, sourceQuote: 60 };
+export const INGEST_LIMIT = 80;
+const PER_FOLDER = 50;
+export const LIBRARY_TOKEN = "library";
+
+export interface ItemBatch {
+  folderToken: string;
+  items: FavItem[];
+  stale?: boolean;
+}
+
+/** 跨收藏夹按收藏时间倒序去重，截到 limit。 */
+export function mergeRecentItems(batches: ItemBatch[], limit = INGEST_LIMIT): (FavItem & { folderToken: string })[] {
+  const byId = new Map<string, FavItem & { folderToken: string }>();
+  for (const { folderToken, items } of batches) {
+    for (const item of items) {
+      const cur = byId.get(item.id);
+      if (!cur || item.favTime > cur.favTime) byId.set(item.id, { ...item, folderToken });
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.favTime - a.favTime || b.createdAt - a.createdAt).slice(0, limit);
+}
 
 export interface ScanInput {
   identity: string;
@@ -94,9 +115,9 @@ export function validateQuote(summary: string, quote: unknown): string {
 
 // ───────── 转化 ─────────
 
-function toSource(it: FavItem, folderToken: string) {
+function toSource(it: FavItem & { folderToken?: string }, folderToken: string) {
   return {
-    folderToken,
+    folderToken: it.folderToken || folderToken,
     source: {
       url: it.url,
       title: it.title,
@@ -213,5 +234,46 @@ export async function scanFolder(input: ScanInput, deps: ScanDeps = {}): Promise
     skipped,
     provider: deps.provider ?? providerLabel(),
     stale: s1 || s2,
+  };
+}
+
+export async function ingestLibrary(
+  input: { identity: string; oauthToken?: string; demo?: boolean; refresh?: boolean },
+  deps: ScanDeps = {},
+): Promise<CardsResponse> {
+  const chat = deps.chat ?? (chatJSON as ChatFn);
+  const fetchFolders = deps.fetchFolders ?? getFavlists;
+  const fetchItems = deps.fetchItems ?? getFavlistItems;
+  const { folders, stale: s1 } = await fetchFolders(input.identity, input.oauthToken);
+  const visible = input.demo ? folders.filter((f) => f.isPublic) : folders;
+  const batches: ItemBatch[] = await Promise.all(
+    visible.map(async (f) => {
+      const { items, stale } = await fetchItems(input.identity, f.urlToken, input.oauthToken, PER_FOLDER);
+      return { folderToken: f.urlToken, items, stale };
+    }),
+  );
+  const items = mergeRecentItems(batches);
+  const stale = s1 || batches.some((b) => b.stale);
+
+  const sorted = items.length ? await sortItems(items, chat, { identity: input.identity, refresh: input.refresh }) : new Map<string, SortRow>();
+  const reasons = new Map([...sorted].map(([id, r]) => [id, r.reason]));
+  const actionItems = items.filter((i) => sorted.get(i.id)?.kind === "action");
+  const flashItems = items.filter((i) => sorted.get(i.id)?.kind === "knowledge");
+  const skipped: SkippedItem[] = items
+    .filter((i) => sorted.get(i.id)?.kind === "skip")
+    .map((i) => ({ id: i.id, title: i.title, url: i.url, reason: reasons.get(i.id) || "" }));
+
+  const [actions, flashes] = await Promise.all([
+    actionItems.length ? toActionCards(actionItems, chat, LIBRARY_TOKEN, reasons) : Promise.resolve([]),
+    flashItems.length ? toFlashCards(flashItems, chat, LIBRARY_TOKEN, reasons) : Promise.resolve([]),
+  ]);
+
+  return {
+    folder: { urlToken: LIBRARY_TOKEN, title: "收藏" },
+    counts: { total: items.length, action: actions.length, flash: flashes.length, skip: skipped.length },
+    cards: [...actions, ...flashes],
+    skipped,
+    provider: deps.provider ?? providerLabel(),
+    stale,
   };
 }

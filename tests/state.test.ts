@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { commitSelection, emptyState, ensureQueue, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
-import type { ActionCard, Card, FlashCard, FolderScan } from "@/lib/types";
+import { commitSelection, emptyState, ensureQueue, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
+import type { ActionCard, Card, CardsResponse, FlashCard, FolderScan } from "@/lib/types";
 
 const D = "2026-09-14";
 const scan: { token: string } & FolderScan = {
@@ -28,6 +28,7 @@ function flash(id: string): FlashCard {
 
 describe("parseState / storageKey", () => {
   test("键包含 identity", () => expect(storageKey("self")).toBe("zhixing:v2:self"));
+  test("入库快照键独立于进度键", () => expect(libraryKey("self")).toBe("zhixing:v2:library:self"));
   test("null、损坏 JSON、旧版本都返回空状态", () => {
     expect(parseState(null)).toEqual(emptyState());
     expect(parseState("{oops")).toEqual(emptyState());
@@ -124,5 +125,24 @@ describe("selectionFor", () => {
     let s = commitSelection(emptyState(), cards, new Set(["a", "b"]), 5, scan);
     s = commitSelection(s, cards, new Set(["a"]), 6, scan); // b → dismissed
     expect([...selectionFor(s, cards)].sort()).toEqual(["a", "c"]);
+  });
+});
+
+describe("parseLibrary", () => {
+  const lib: CardsResponse = {
+    folder: { urlToken: "library", title: "收藏" },
+    counts: { total: 2, action: 1, flash: 1, skip: 0 },
+    cards: [action("a"), flash("f")],
+    skipped: [],
+    provider: "test",
+    stale: false,
+  };
+  test("合法快照往返", () => {
+    expect(parseLibrary(JSON.stringify(lib))).toEqual(lib);
+  });
+  test("损坏或缺少 cards 视为没有快照", () => {
+    expect(parseLibrary(null)).toBeNull();
+    expect(parseLibrary("{oops")).toBeNull();
+    expect(parseLibrary(JSON.stringify({ folder: {}, cards: null }))).toBeNull();
   });
 });

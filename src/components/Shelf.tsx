@@ -31,7 +31,7 @@ export function Shelf({ summary, streakDays, scan, saveWarn }: Props) {
 
       {c && c.total > 0 && (
         <div className="card p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">收藏夹体检 · {scan!.title}</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">收藏体检{scan!.title ? ` · ${scan!.title}` : ""}</p>
           <div className="bar mt-3" aria-hidden>
             <i style={{ width: pct(c.action), background: "var(--seal)" }} />
             <i style={{ width: pct(c.flash), background: "#5f7fa8" }} />
@@ -48,7 +48,7 @@ export function Shelf({ summary, streakDays, scan, saveWarn }: Props) {
       <Link href="/plan" className="card block p-4 text-sm text-wall-ink hover:text-white">去筹划页挑几张 →</Link>
 
       <p className="px-1 text-[11px] leading-relaxed text-wall-dim">
-        {scan ? `分拣与转化：${scan.provider}。` : ""}收藏数据来自知乎开放平台，仅读取标题与摘要，进度保存在本浏览器。
+        {scan ? `分拣与转化：${scan.provider}。` : ""}收藏在登录时读入一次，进度保存在本浏览器。
       </p>
     </aside>
   );

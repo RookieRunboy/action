@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { scanFolder, validateQuote } from "@/lib/pipeline";
+import { INGEST_LIMIT, ingestLibrary, LIBRARY_TOKEN, mergeRecentItems, scanFolder, validateQuote } from "@/lib/pipeline";
 import type { ChatFn } from "@/lib/llm";
 import type { FavFolder, FavItem } from "@/lib/types";
 
-function item(id: string, title: string, summary: string): FavItem {
+function item(id: string, title: string, summary: string, favTime = 1_700_000_000): FavItem {
   return {
     id, title, summary, url: `https://www.zhihu.com/answer/${id}`, contentType: "answer",
-    createdAt: 1, favTime: 1_700_000_000, likeCount: 100, commentCount: 1, favoriteCount: 1,
+    createdAt: 1, favTime, likeCount: 100, commentCount: 1, favoriteCount: 1,
     author: { name: "作者" + id, url: "https://www.zhihu.com/people/x", urlToken: "x", headline: "" },
   };
 }
@@ -62,6 +62,30 @@ describe("validateQuote", () => {
   });
 });
 
+describe("mergeRecentItems", () => {
+  test("跨收藏夹按收藏时间倒序去重，截到上限", () => {
+    const a = item("i1", "旧", "s", 10);
+    const b = item("i1", "新同 id", "s", 30);
+    const c = item("i2", "中", "s", 20);
+    const d = item("i3", "最新", "s", 40);
+    const got = mergeRecentItems(
+      [
+        { folderToken: "f1", items: [a, c] },
+        { folderToken: "f2", items: [b, d] },
+      ],
+      2,
+    );
+    expect(got.map((x) => x.id)).toEqual(["i3", "i1"]);
+    expect(got[1]?.folderToken).toBe("f2");
+    expect(got[1]?.title).toBe("新同 id");
+  });
+  test("默认上限是 INGEST_LIMIT", () => {
+    const items = Array.from({ length: INGEST_LIMIT + 5 }, (_, i) => item(`n${i}`, "t", "s", i));
+    expect(mergeRecentItems([{ folderToken: "f", items }])).toHaveLength(INGEST_LIMIT);
+    expect(mergeRecentItems([{ folderToken: "f", items }])[0]?.id).toBe(`n${INGEST_LIMIT + 4}`);
+  });
+});
+
 describe("scanFolder", () => {
   test("分拣 → 双路转化 → CardsResponse", async () => {
     process.env.ZHIXING_CACHE_DIR = `/tmp/zx-pipeline-${Date.now()}`;
@@ -97,5 +121,32 @@ describe("scanFolder", () => {
     expect(res.skipped).toEqual([{ id: "i3", title: "游戏台词", url: "https://www.zhihu.com/answer/i3", reason: "情绪共鸣型，没有可做的动作" }]);
     // i4 被 AI 漏掉 → 视为 skip，理由固定
     expect(res.cards.some((c) => c.id === "i4")).toBe(false);
+  });
+});
+
+describe("ingestLibrary", () => {
+  test("合并各夹最近收藏，体验模式跳过私密夹，卡片保留来源夹", async () => {
+    process.env.ZHIXING_CACHE_DIR = `/tmp/zx-ingest-${Date.now()}`;
+    const publicFolder: FavFolder = { urlToken: "pub", url: "", title: "公开", description: "", isPublic: true };
+    const privateFolder: FavFolder = { urlToken: "priv", url: "", title: "私密", description: "", isPublic: false };
+    const fetched: string[] = [];
+    const res = await ingestLibrary(
+      { identity: "t", demo: true, refresh: true },
+      {
+        chat,
+        provider: "假模型",
+        fetchFolders: async () => ({ folders: [publicFolder, privateFolder], stale: false }),
+        fetchItems: async (_id, token) => {
+          fetched.push(token);
+          if (token === "priv") return { items: [item("secret", "不该出现", "x", 99)], total: 1, stale: false };
+          return { items, total: items.length, stale: false };
+        },
+      },
+    );
+    expect(fetched).toEqual(["pub"]);
+    expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "收藏" });
+    expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("pub");
+    expect(res.cards.some((c) => c.id === "secret")).toBe(false);
+    expect(res.counts.total).toBe(4);
   });
 });
