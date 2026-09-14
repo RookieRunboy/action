@@ -1,34 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-
 interface Props {
   oauth: boolean;
-  demo: boolean;
   error?: string | null;
 }
 
-export function Welcome({ oauth, demo, error }: Props) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-
-  async function enterDemo() {
-    setBusy(true);
-    setLocalError(null);
-    try {
-      const r = await fetch("/api/auth/demo", { method: "POST" });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "进入体验模式失败。");
-      router.push("/plan");
-      router.refresh();
-    } catch (e) {
-      setLocalError((e as Error).message);
-      setBusy(false);
-    }
-  }
-
+export function Welcome({ oauth, error }: Props) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-6xl flex-col px-4 py-8 sm:px-6 lg:px-8">
       <header className="flex items-center gap-3">
@@ -50,25 +27,15 @@ export function Welcome({ oauth, demo, error }: Props) {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            {oauth && (
+            {oauth ? (
               <a className="btn btn-seal" href="/api/auth/login">
                 用知乎账号登录
               </a>
+            ) : (
+              <p className="text-sm text-wall-dim">服务端还没有配置知乎登录。</p>
             )}
-            {demo && (
-              <button type="button" className={`btn ${oauth ? "btn-ghost" : "btn-seal"}`} onClick={enterDemo} disabled={busy}>
-                {busy ? "正在进入…" : oauth ? "不登录，先看示例" : "进入体验模式"}
-              </button>
-            )}
-            {!oauth && !demo && <p className="text-sm text-wall-dim">服务端还没有配置知乎凭证。</p>}
           </div>
-          {(error || localError) && <p className="mt-4 text-sm text-[#e8897a]">{error || localError}</p>}
-          {demo && (
-            <p className="mt-3 max-w-md text-xs leading-relaxed text-wall-dim">
-              体验模式使用项目作者的公开收藏夹作为示例数据，不会读取你的账号。
-              {oauth ? "用知乎登录后，读取的才是你自己的收藏。" : ""}
-            </p>
-          )}
+          {error && <p className="mt-4 text-sm text-[#e8897a]">{error}</p>}
 
           <dl className="mt-12 grid max-w-lg grid-cols-3 gap-4 text-xs text-wall-dim">
             <div>

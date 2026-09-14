@@ -125,28 +125,27 @@ describe("scanFolder", () => {
 });
 
 describe("ingestLibrary", () => {
-  test("合并各夹最近收藏，体验模式跳过私密夹，卡片保留来源夹", async () => {
+  test("合并各夹最近收藏，卡片保留来源夹", async () => {
     process.env.ZHIXING_CACHE_DIR = `/tmp/zx-ingest-${Date.now()}`;
     const publicFolder: FavFolder = { urlToken: "pub", url: "", title: "公开", description: "", isPublic: true };
     const privateFolder: FavFolder = { urlToken: "priv", url: "", title: "私密", description: "", isPublic: false };
     const fetched: string[] = [];
     const res = await ingestLibrary(
-      { identity: "t", demo: true, refresh: true },
+      { identity: "t", refresh: true },
       {
         chat,
         provider: "假模型",
         fetchFolders: async () => ({ folders: [publicFolder, privateFolder], stale: false }),
         fetchItems: async (_id, token) => {
           fetched.push(token);
-          if (token === "priv") return { items: [item("secret", "不该出现", "x", 99)], total: 1, stale: false };
+          if (token === "priv") return { items: [item("i1", "私密里的同条", "s", 9_000_000_000)], total: 1, stale: false };
           return { items, total: items.length, stale: false };
         },
       },
     );
-    expect(fetched).toEqual(["pub"]);
+    expect(fetched).toEqual(["pub", "priv"]);
     expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "收藏" });
-    expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("pub");
-    expect(res.cards.some((c) => c.id === "secret")).toBe(false);
+    expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("priv");
     expect(res.counts.total).toBe(4);
   });
 });

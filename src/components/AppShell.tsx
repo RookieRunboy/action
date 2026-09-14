@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
 export interface ClientSession {
-  kind: "oauth" | "demo";
+  kind: "oauth";
   identity: string;
   user: { name: string; avatar?: string; headline?: string };
 }
@@ -51,9 +51,6 @@ export function AppShell({ active, session, right, children }: Props) {
           <div className="ml-1 flex items-center gap-2 text-sm">
             {session.user.avatar && <img src={session.user.avatar} alt="" className="h-6 w-6 rounded-full" />}
             <span className="text-wall-ink">{session.user.name}</span>
-            {session.kind === "demo" && (
-              <span className="rounded-sm border border-white/15 px-1.5 py-0.5 text-[10px] tracking-wider text-wall-dim">体验模式</span>
-            )}
             <button type="button" className="btn btn-text !text-wall-dim hover:!text-white" onClick={logout}>
               退出
             </button>

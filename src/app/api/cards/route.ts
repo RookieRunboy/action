@@ -14,7 +14,6 @@ export async function GET(req: NextRequest) {
     const res = await ingestLibrary({
       identity: s.identity,
       oauthToken: s.oauthToken,
-      demo: s.kind === "demo",
       refresh: req.nextUrl.searchParams.get("refresh") === "1",
     });
     return NextResponse.json(res);

@@ -7,9 +7,7 @@ export async function GET(req: NextRequest) {
   if (!s) return NextResponse.json({ error: "还没有登录。" }, { status: 401 });
   try {
     const { folders, stale } = await getFavlists(s.identity, s.oauthToken);
-    // 体验模式读取的是站点方账号的收藏，只暴露公开收藏夹
-    const visible = s.kind === "demo" ? folders.filter((f) => f.isPublic) : folders;
-    return NextResponse.json({ folders: visible, stale });
+    return NextResponse.json({ folders, stale });
   } catch (e) {
     const status = e instanceof ZhihuError && e.code === 20001 ? 401 : 502;
     return NextResponse.json({ error: e instanceof Error ? e.message : "读取收藏夹失败。" }, { status });

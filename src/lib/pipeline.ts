@@ -238,16 +238,15 @@ export async function scanFolder(input: ScanInput, deps: ScanDeps = {}): Promise
 }
 
 export async function ingestLibrary(
-  input: { identity: string; oauthToken?: string; demo?: boolean; refresh?: boolean },
+  input: { identity: string; oauthToken?: string; refresh?: boolean },
   deps: ScanDeps = {},
 ): Promise<CardsResponse> {
   const chat = deps.chat ?? (chatJSON as ChatFn);
   const fetchFolders = deps.fetchFolders ?? getFavlists;
   const fetchItems = deps.fetchItems ?? getFavlistItems;
   const { folders, stale: s1 } = await fetchFolders(input.identity, input.oauthToken);
-  const visible = input.demo ? folders.filter((f) => f.isPublic) : folders;
   const batches: ItemBatch[] = await Promise.all(
-    visible.map(async (f) => {
+    folders.map(async (f) => {
       const { items, stale } = await fetchItems(input.identity, f.urlToken, input.oauthToken, PER_FOLDER);
       return { folderToken: f.urlToken, items, stale };
     }),
