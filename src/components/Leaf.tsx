@@ -15,6 +15,10 @@ interface Props {
   states: Record<string, CardState>;
   onResult: (id: string, result: Result) => void;
   empty?: ReactNode;
+  groupComplete?: boolean;
+  onRefresh?: () => void;
+  completedToday?: boolean;
+  libraryEmpty?: boolean;
 }
 
 function tabooFor(date: string) {
@@ -22,7 +26,10 @@ function tabooFor(date: string) {
   return TABOOS[n % TABOOS.length];
 }
 
-export function Leaf({ date, actions, flashes, states, onResult, empty }: Props) {
+export function Leaf({
+  date, actions, flashes, states, onResult, empty,
+  groupComplete = false, onRefresh, completedToday = false, libraryEmpty = false,
+}: Props) {
   const { month, day, weekday } = leafParts(date);
   const results = (cards: { id: string }[]) => cards.map((c) => resultOn(states[c.id], date));
   const actionResults = results(actions);
@@ -30,11 +37,23 @@ export function Leaf({ date, actions, flashes, states, onResult, empty }: Props)
   const actionTotal = actionResults.filter((r) => r !== "later").length;
   const actionDone = actionResults.filter((r) => r === "did").length;
   const flashDone = flashResults.filter((r) => r !== undefined).length;
+  const hasActions = actions.length > 0;
+  const hasFlashes = flashes.length > 0;
+  const showYi = hasActions || libraryEmpty || completedToday;
+  const showJi = hasFlashes;
+  const showRefresh = !!onRefresh && (hasActions || hasFlashes);
   const actionsComplete = actionResults.every((r) => r !== undefined);
   const flashComplete = flashResults.every((r) => r !== undefined);
   const anySuccess = actionResults.includes("did") || flashResults.includes("remembered");
-  const sealed = actionsComplete && flashComplete && anySuccess;
-  const nothing = actions.length === 0 && flashes.length === 0;
+  const anySuccessToday = Object.values(states).some((s) => {
+    const r = resultOn(s, date);
+    return r === "did" || r === "remembered";
+  });
+  const sealed = completedToday ? anySuccessToday : actionsComplete && flashComplete && anySuccess;
+  const counts = [
+    hasActions ? `宜 ${actionDone} / ${actionTotal}` : null,
+    hasFlashes ? `记 ${flashDone} / ${flashes.length}` : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <article className="leaf" aria-live="polite">
@@ -53,22 +72,24 @@ export function Leaf({ date, actions, flashes, states, onResult, empty }: Props)
       </header>
       <div className="leaf-rule double mx-7 sm:mx-9" />
 
-      <section className="px-7 pt-5 sm:px-9">
-        <div className="flex items-start gap-4">
-          <span className="mark" aria-label="宜">宜</span>
-          <div className="min-w-0 flex-1 pt-1">
-            {nothing && empty}
-            {!nothing && actions.length === 0 && <p className="song py-2 text-[15px] text-ink-2">今天没有到期的行动。</p>}
-            {actions.map((card) => (
-              <ActionRow key={card.id} card={card} state={states[card.id]} date={date} onResult={onResult} />
-            ))}
+      {showYi && (
+        <section className="px-7 pt-5 sm:px-9">
+          <div className="flex items-start gap-4">
+            <span className="mark" aria-label="宜">宜</span>
+            <div className="min-w-0 flex-1 pt-1">
+              {libraryEmpty && empty}
+              {completedToday && <p className="song py-2 text-[15px] text-ink">今天刷完。</p>}
+              {actions.map((card) => (
+                <ActionRow key={card.id} card={card} state={states[card.id]} date={date} onResult={onResult} />
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {!nothing && (
+      {showJi && (
         <>
-          <div className="leaf-rule mx-7 mt-3 sm:mx-9" />
+          {showYi && <div className="leaf-rule mx-7 mt-3 sm:mx-9" />}
           <section className="px-7 pt-5 sm:px-9">
             <div className="flex items-start gap-4">
               <span className="mark" aria-label="记">记</span>
@@ -90,8 +111,11 @@ export function Leaf({ date, actions, flashes, states, onResult, empty }: Props)
 
       <footer className="relative px-7 pb-7 pt-1 sm:px-9">
         <div className="leaf-rule mb-3" />
-        <div className="flex items-center justify-between text-[12px] text-ink-3 tabular-nums">
-          <span>{!nothing && `宜 ${actionDone} / ${actionTotal} · 记 ${flashDone} / ${flashes.length}`}</span>
+        <div className="flex items-center justify-between gap-3 text-[12px] text-ink-3 tabular-nums">
+          <span>{counts}</span>
+          {showRefresh && (
+            <button type="button" className="btn btn-ink" disabled={!groupComplete} onClick={onRefresh}>刷新</button>
+          )}
         </div>
         {sealed && <span className="stamp big" aria-label="今日知行合一">知行合一</span>}
       </footer>

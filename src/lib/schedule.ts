@@ -85,6 +85,43 @@ export function groupComplete(states: Record<string, CardState>, date: string, q
   return keepPresent(states, queue.ids).every((id) => resultOn(states[id], date) !== undefined);
 }
 
+/** 今日页空态与刷新。须在 ensureQueue 之后调用。 */
+export function todayFlags(
+  states: Record<string, CardState>,
+  date: string,
+  queue: DayQueue,
+): {
+  libraryEmpty: boolean;
+  completedToday: boolean;
+  groupDone: boolean;
+  showRefresh: boolean;
+  refreshEnabled: boolean;
+  sealed: boolean;
+} {
+  const present = keepPresent(states, queue.ids);
+  const hasGroup = present.length > 0;
+  const practicing = Object.values(states).some((s) => s.status === "queued" || s.status === "active");
+  const anyToday = Object.values(states).some((s) => resultOn(s, date) !== undefined);
+  const anySuccessToday = Object.values(states).some((s) => {
+    const r = resultOn(s, date);
+    return r !== undefined && SUCCESS.includes(r);
+  });
+  const libraryEmpty = !hasGroup && !practicing && !anyToday;
+  const completedToday = !hasGroup && !libraryEmpty;
+  const groupDone = groupComplete(states, date, queue);
+  return {
+    libraryEmpty,
+    completedToday,
+    groupDone,
+    showRefresh: hasGroup,
+    refreshEnabled: hasGroup && groupDone,
+    sealed: hasGroup ? groupDone && present.some((id) => {
+      const r = resultOn(states[id], date);
+      return r !== undefined && SUCCESS.includes(r);
+    }) : completedToday && anySuccessToday,
+  };
+}
+
 /** 组内未全部标记则冻结原组；否则从剩余未标记取下一组，没有则空（不绕回）。 */
 export function advanceGroup(
   states: Record<string, CardState>,
