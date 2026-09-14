@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { DEMO_COOKIE, destroySession, SID_COOKIE } from "@/lib/session";
+import { cookieOptions, DEMO_COOKIE, SID_COOKIE } from "@/lib/session";
 
 export function POST(req: NextRequest) {
-  destroySession(req.cookies.get(SID_COOKIE)?.value);
   const res = NextResponse.json({ ok: true });
-  res.cookies.delete(SID_COOKIE);
-  res.cookies.delete(DEMO_COOKIE);
+  const opts = cookieOptions(req);
+  res.cookies.set(SID_COOKIE, "", { ...opts, maxAge: 0 });
+  res.cookies.set(DEMO_COOKIE, "", { ...opts, maxAge: 0 });
   return res;
 }

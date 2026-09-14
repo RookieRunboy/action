@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { consumeState, cookieOptions, createSession, DEMO_COOKIE, oauthConfigured, SID_COOKIE } from "@/lib/session";
+import { consumeState, cookieOptions, createSession, DEMO_COOKIE, encodeSession, oauthConfigured, SID_COOKIE } from "@/lib/session";
 
 interface TokenResponse {
   access_token?: string;
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
   });
 
   const res = NextResponse.redirect(new URL("/plan", req.url));
-  res.cookies.set(SID_COOKIE, session.id, { ...cookieOptions(req), maxAge: Math.floor(ttl / 1000) });
+  res.cookies.set(SID_COOKIE, encodeSession(session), { ...cookieOptions(req), maxAge: Math.floor(ttl / 1000) });
   res.cookies.delete(DEMO_COOKIE);
   return res;
 }
