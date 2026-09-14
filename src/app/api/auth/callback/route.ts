@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
     user: { name: profile.fullname, avatar: profile.avatar_path, headline: profile.headline },
   });
 
-  const res = NextResponse.redirect(new URL("/", req.url));
+  const res = NextResponse.redirect(new URL("/plan", req.url));
   res.cookies.set(SID_COOKIE, session.id, { ...cookieOptions(req), maxAge: Math.floor(ttl / 1000) });
   res.cookies.delete(DEMO_COOKIE);
   return res;

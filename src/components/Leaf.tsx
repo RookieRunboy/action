@@ -1,7 +1,7 @@
 "use client";
 
 import type { PlanResponse } from "@/lib/types";
-import type { DoneRecord } from "@/lib/store";
+type DoneRecord = { at: number; replied?: boolean };
 import { leafParts } from "@/lib/dates";
 import { TABOOS } from "@/lib/prompts";
 import { ActionRow } from "./ActionRow";

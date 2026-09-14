@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { TodayAction } from "@/lib/types";
-import type { DoneRecord } from "@/lib/store";
+type DoneRecord = { at: number; replied?: boolean };
 
 interface Props {
   item: TodayAction;
