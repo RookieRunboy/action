@@ -62,13 +62,13 @@ interface CardSource {
   favTime: number; likeCount: number; summary: string;
   author?: { name: string; url: string };
 }
-interface CardBase { id: string; folderToken: string; source: CardSource; tags: Tags; sourceQuote: string; }
+interface CardBase { id: string; folderToken: string; source: CardSource; tags: Tags; sourceQuote: string; reason: string; }
 interface ActionCard extends CardBase { kind: "action"; action: string; why: string; replyDraft: string; }
 interface FlashCard  extends CardBase { kind: "flash";  front: string;  back: string; }
 type Card = ActionCard | FlashCard;
 ```
 
-字段约束（服务端裁剪，超长截断）：`action ≤ 40` 字、`why ≤ 60`、`replyDraft ≤ 90`、`front ≤ 40`、`back ≤ 80`、`sourceQuote ≤ 60` 且必须是摘要原文（模糊匹配：去标点空白后为子串；不匹配则退回摘要第一句）。
+字段约束（服务端裁剪，超长截断）：`action ≤ 40` 字、`why ≤ 60`、`replyDraft ≤ 90`、`front ≤ 40`、`back ≤ 80`、`reason ≤ 30`（分拣理由，来自分拣步骤，写给用户看）、`sourceQuote ≤ 60` 且必须是摘要原文（模糊匹配：去标点空白后为子串；不匹配则退回摘要第一句）。
 
 ### 4.2 标签 `Tags`
 
@@ -112,7 +112,7 @@ interface StateV2 {
   lastFolder?: string;
 }
 interface DayQueue { actions: string[]; flash: string[] }
-interface FolderScan { title: string; counts: { total: number; action: number; flash: number; skip: number }; scannedAt: number }
+interface FolderScan { title: string; counts: { total: number; action: number; flash: number; skip: number }; scannedAt: number; provider: string }
 ```
 
 读写都包 try/catch；不可用时应用仍能渲染（当日状态仅存内存）。
@@ -142,7 +142,7 @@ interface FolderScan { title: string; counts: { total: number; action: number; f
 3. 仍有空位时引入新卡：数量 = `min(NEW_PER_DAY[kind] − 当日已引入数, 剩余空位)`，其中「当日已引入数」= 同 kind 且 `introducedAt === date` 的状态数；从 `status === "queued"` 中按 `addedAt` 升序取；被引入的卡 `status = "active"`、`introducedAt = date`、`due = date`。
 4. 返回新队列与更新后的状态。函数纯、幂等：同一输入多次调用结果一致。
 
-「今天不做」= 对该卡 `applyResult("later")`，然后再次执行 `buildQueue` 补位（有空位且有到期 / 待开始卡时会补进一张，否则该位置显示「明天再来」）。
+「今天不做」= 对该卡 `applyResult("later")`，然后再次执行 `buildQueue` 补位。计算上限时**不计入**当日结果为 `later` 的卡（它们仍留在冻结队列里，UI 显示为一行灰字「明天再来 · 动作」），因此有到期 / 待开始卡时会补进一张。冻结队列中状态变为 `dismissed` 的卡会被移除。
 
 ### 5.3 连续天数 `streak(states, date)`
 
@@ -174,13 +174,14 @@ skip      ──▶ 原样返回 {id,title,url,reason} 供筹划页「放过的�
 - LLM 提供方可切换：`LLM_PROVIDER=dashscope`（通义 `qwen-plus`，默认）/ `zhida`（知乎直答 `zhida-fast-1p5`，OpenAI 兼容格式，本账号每日仅 2 次额度）。两者都要求 JSON 输出，解析兼容 ``` 围栏与前后杂文。
 - 管线函数接受可注入的 `chat` 函数（默认 `chatJSON`），便于测试不打真实接口；缓存目录可用环境变量 `ZHIXING_CACHE_DIR` 覆盖。
 
-**知乎额度**（本账号实测）：用户数据 1000/日，知乎搜索 10/日，直答 2/日。所有知乎响应文件缓存 6 小时。
+**知乎额度**（本账号实测）：用户数据 1000/日，知乎搜索 10/日，直答 2/日。所有知乎响应文件缓存 24 小时，且**缓存文件永不删除**：过期后重新拉取失败（限流、额度耗尽、断网）时回退到旧快照，并在响应中标记 `stale: true`，前端在体检卡下方显示「使用的是 <时间> 的快照」类提示可选、本轮只需透传字段。缓存目录默认 `.cache/`，可用 `ZHIXING_CACHE_DIR` 覆盖。
 
 ## 7. 接口
 
 | 路由 | 方法 | 说明 |
 |---|---|---|
-| `/api/auth/login` `/api/auth/callback` `/api/auth/demo` `/api/auth/logout` `/api/me` `/api/favlists` | 已有 | 仅改一处：OAuth 回调成功后重定向到 `/plan`（v1 为 `/`） |
+| `/api/auth/login` `/api/auth/callback` `/api/auth/demo` `/api/auth/logout` `/api/me` | 已有 | 仅改一处：OAuth 回调成功后重定向到 `/plan`（v1 为 `/`） |
+| `/api/favlists` | GET，已有 | 响应改为 `{ folders: FavFolder[]; stale: boolean }` |
 | `/api/cards?folder=<token>&refresh=0\|1` | GET | **新增**，替代 v1 的 `/api/plan`（删除） |
 
 `/api/cards` 响应 200：
@@ -192,6 +193,7 @@ skip      ──▶ 原样返回 {id,title,url,reason} 供筹划页「放过的�
   cards: Card[];
   skipped: { id: string; title: string; url: string; reason: string }[];
   provider: string;   // 如「通义千问 · qwen-plus」
+  stale: boolean;     // 收藏夹数据是否来自过期快照（§6）
 }
 ```
 
@@ -226,14 +228,15 @@ v1 的 Welcome，改动：体验模式成功后 `router.push("/plan")`；OAuth �
 - 页眉：月 · 星期，日期大数字，右上「知行 / 无行动，不知乎」。
 - **宜**：今日队列中的行动卡，每张 `ActionRow`：复选框（做了）· 正文 · 标签芯片 · `why · 作者 的回答 · 收藏了 N 天` · 引句 · 「今天不做」文字按钮。
   - 做了 → 复选框朱砂勾、正文划线、右侧盖「行」印（v1 动画）、展开回访面板（v1：可编辑草稿、「复制并去原文留言」、「这次不说」）。
-  - 今天不做 → 该行淡出，位置由补位卡替换；无补位时显示一行灰字「明天再来」。
+  - 今天不做 → 该行变为一行灰字「明天再来 · 动作」，并按 §5.2 尝试补进一张卡。
+  - 回访面板的「已留言」状态只保存在组件内存中（刷新后不再显示），不进入 `CardState`。
 - **记**（新增，字形「记」与「宜」同款方框）：闪卡一次只显示一张，形如一张小纸片叠在日历纸上：
   - 正面：问题（宋体 19px）+ 「翻面」按钮 + 右上角进度 `2 / 5`。
   - 背面：要点 + 引句「…」+ 出处链接 + 三个按钮 `记得` `模糊` `忘了`（`记得` 为实心墨色，其余描边）。
   - 选择后进入下一张；全部完成显示「今日闪卡完成 · 记得 a · 模糊 b · 忘了 c」。
   - 键盘：空格翻面，1/2/3 对应三个按钮（有 `aria-keyshortcuts`）。
 - **忌**：v1 不变。
-- 页脚：`宜 x/3 · 记 y/5`（分母为当日队列长度）；宜与记都完成（各自队列中每张卡都有当日结果，队列为空视为完成）且当日至少 1 条结果 ∈ {did, remembered} → 盖「知行合一」大印。
+- 页脚：`宜 x/a · 记 y/b`（a = 当日行动队列中不含「明天再来」的张数，b = 闪卡队列长度）；宜与记都完成（各自队列中每张卡都有当日结果，队列为空视为完成）且当日至少 1 条结果 ∈ {did, remembered} → 盖「知行合一」大印。
 - **空态**（没有任何 `queued/active` 卡）：宜栏显示「还没有加入任何卡片。」+ 「去筹划页挑几张」按钮 → `/plan`。
 - `Shelf`：① 连续天数大数字 + 内化 / 在练 / 待开始 三格；② 收藏夹体检（`folders` 中当前 `lastFolder`，无则隐藏）；③ 「去筹划页 →」链接；④ 页脚小字：AI 提供方与数据来源声明（v1 文案）。
 
@@ -267,7 +270,8 @@ v1 的 Welcome，改动：体验模式成功后 `router.push("/plan")`；OAuth �
 - 运行器：`bun test`（内建），脚本 `bun run test`。测试放 `tests/`，纯函数全覆盖：
   - `tags.test.ts`：词表过滤、去重、上限 2、`do` 空默认「其他」。
   - `schedule.test.ts`：`applyResult` 全部转换表；`buildQueue` 上限、每日新卡上限、幂等、到期优先级、冻结队列不被移除；`streak` 含 `later` 不计、隔天中断。
-  - `store.test.ts`：`commitSelection` 四种状态转换、卡片快照写入、`recordResult` 追加历史、序列化往返、v1 键忽略。
+  - `state.test.ts`：`commitSelection` 五种状态转换、卡片快照写入、`recordResult` 追加历史与 `later` 补位、`ensureQueue`、序列化往返、v1 / 损坏数据忽略。
+  - `cache.test.ts`：`cachedWithFallback` 命中 / 过期重拉 / 重拉失败回退旧快照并 `stale: true` / 无快照时抛错。
   - `llm.test.ts`：`extractJSON` 围栏 / 前后杂文 / 非法输入抛 `LLMError`。
   - `pipeline.test.ts`：注入假 `chat`，验证分拣合并、缺失条目丢弃、字段截断、引句校验回退、标签过滤。
 - 手工验收（计划中给出命令）：体验模式 → `/plan` 扫描「我的收藏」→ 加入 → `/today` 完成一张行动与一张闪卡 → `?date=` 前进 1 / 2 / 4 天观察到期 → 截图。
@@ -277,11 +281,12 @@ v1 的 Welcome，改动：体验模式成功后 `router.push("/plan")`；OAuth �
 
 | v1 | 处置 |
 |---|---|
-| `src/lib/{zhihu,llm,cache,session,dates}.ts` | 保留；`cache.ts` 增加 `ZHIXING_CACHE_DIR`；`llm.ts` 不变 |
-| `src/lib/pipeline.ts` `prompts.ts` `types.ts` | 重写（§4、§6） |
-| `src/lib/store.ts` | 重写为 v2（§4.4） |
+| `src/lib/{zhihu,llm,cache,session,dates}.ts` | 保留；`cache.ts` 增加 `ZHIXING_CACHE_DIR` 与 `cachedWithFallback`；`zhihu.ts` 使用回退并返回 `stale`；`llm.ts` 导出 `ChatFn` 类型；`dates.ts` 增加 `addDays` `isValidISODate` |
+| `src/lib/pipeline.ts` `prompts.ts` | 重写（§6） |
+| `src/lib/types.ts` | 重写为 v2 类型（§4）；v1 类型以「兼容块」暂留，待 v1 组件全部替换后删除 |
+| `src/lib/store.ts` | 删除；新增纯函数模块 `src/lib/state.ts`（§4.4 的读写与状态转换）与 `src/lib/schedule.ts`（§5）、`src/lib/tags.ts`（§4.2） |
 | `src/app/api/plan/route.ts` | 删除，改为 `api/cards` |
-| `src/components/App.tsx` | 删除，拆为 `AppShell` `PlanPage` `TodayPage` |
+| `src/components/App.tsx` | 删除，拆为 `AppShell`（导航壳）`PlanPage` `CandidateRow` `TagChips` `TodayPage` `FlashDeck` |
 | `Leaf.tsx` `ActionRow.tsx` `Shelf.tsx` `Welcome.tsx` | 按 §8 修改 |
 | `globals.css` | 保留全部 token；新增闪卡与标签芯片样式 |
 
