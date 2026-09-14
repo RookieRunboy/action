@@ -143,10 +143,11 @@ describe("scanFolder", () => {
 });
 
 describe("ingestLibrary", () => {
-  test("合并各夹最近收藏，卡片保留来源夹", async () => {
+  const publicFolder: FavFolder = { urlToken: "pub", url: "", title: "默认收藏夹", description: "", isPublic: true };
+  const privateFolder: FavFolder = { urlToken: "priv", url: "", title: "私密", description: "", isPublic: false };
+
+  test("未指定收藏夹时只拉默认收藏夹", async () => {
     process.env.ZHIXING_CACHE_DIR = `/tmp/zx-ingest-${Date.now()}`;
-    const publicFolder: FavFolder = { urlToken: "pub", url: "", title: "公开", description: "", isPublic: true };
-    const privateFolder: FavFolder = { urlToken: "priv", url: "", title: "私密", description: "", isPublic: false };
     const fetched: string[] = [];
     const res = await ingestLibrary(
       { identity: "t", refresh: true },
@@ -156,14 +157,31 @@ describe("ingestLibrary", () => {
         fetchFolders: async () => ({ folders: [publicFolder, privateFolder], stale: false }),
         fetchItems: async (_id, token) => {
           fetched.push(token);
-          if (token === "priv") return { items: [item("i1", "私密里的同条", "s", 9_000_000_000)], total: 1, stale: false };
           return { items, total: items.length, stale: false };
         },
       },
     );
-    expect(fetched.sort()).toEqual(["priv", "pub"]);
+    expect(fetched).toEqual(["pub"]);
     expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "收藏" });
-    expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("priv");
+    expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("pub");
     expect(res.counts.total).toBe(4);
+  });
+
+  test("指定多个收藏夹则按选择拉取", async () => {
+    process.env.ZHIXING_CACHE_DIR = `/tmp/zx-ingest-multi-${Date.now()}`;
+    const fetched: string[] = [];
+    await ingestLibrary(
+      { identity: "t", refresh: true, folderTokens: ["priv", "pub"] },
+      {
+        chat,
+        provider: "假模型",
+        fetchFolders: async () => ({ folders: [publicFolder, privateFolder], stale: false }),
+        fetchItems: async (_id, token) => {
+          fetched.push(token);
+          return { items: token === "priv" ? [item("i1", "x", "s", 9)] : items, total: 1, stale: false };
+        },
+      },
+    );
+    expect(fetched.sort()).toEqual(["priv", "pub"]);
   });
 });

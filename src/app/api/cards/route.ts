@@ -11,10 +11,12 @@ export async function GET(req: NextRequest) {
   if (!s) return NextResponse.json({ error: "还没有登录。" }, { status: 401 });
 
   try {
+    const folderTokens = req.nextUrl.searchParams.get("folders")?.split(",") ?? [];
     const res = await ingestLibrary({
       identity: s.identity,
       oauthToken: s.oauthToken,
       refresh: req.nextUrl.searchParams.get("refresh") === "1",
+      folderTokens,
     });
     return NextResponse.json(res);
   } catch (e) {

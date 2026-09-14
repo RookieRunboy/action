@@ -1,6 +1,7 @@
 import type { ActionCard, Card, CardsResponse, FavItem, FlashCard, SkippedItem } from "./types";
 import { cacheGet, cacheSet, hashKey } from "./cache";
 import { chatJSON, providerLabel, type ChatFn } from "./llm";
+import { resolveIngestFolders } from "./folders";
 import { getFavlistItems, getFavlists } from "./zhihu";
 import { ACTION_SYSTEM, FLASH_SYSTEM, SORT_SYSTEM } from "./prompts";
 import { normalizeTags } from "./tags";
@@ -256,14 +257,15 @@ export async function scanFolder(input: ScanInput, deps: ScanDeps = {}): Promise
 }
 
 export async function ingestLibrary(
-  input: { identity: string; oauthToken?: string; refresh?: boolean },
+  input: { identity: string; oauthToken?: string; refresh?: boolean; folderTokens?: string[] },
   deps: ScanDeps = {},
 ): Promise<CardsResponse> {
   const chat = deps.chat ?? (chatJSON as ChatFn);
   const fetchFolders = deps.fetchFolders ?? getFavlists;
   const fetchItems = deps.fetchItems ?? getFavlistItems;
   const { folders, stale: s1 } = await fetchFolders(input.identity, input.oauthToken);
-  const batches: ItemBatch[] = await mapPool(folders, FOLDER_CONCURRENCY, async (f) => {
+  const targets = resolveIngestFolders(folders, input.folderTokens);
+  const batches: ItemBatch[] = await mapPool(targets, FOLDER_CONCURRENCY, async (f) => {
     const { items, stale } = await fetchItems(input.identity, f.urlToken, input.oauthToken, PER_FOLDER);
     return { folderToken: f.urlToken, items, stale };
   });
