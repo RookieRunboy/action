@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 知行 · 无行动，不知乎
 
-## Getting Started
+> 知乎黑客松 2026 · 参赛作品 · 赛道：Agent 在社区中的新角色 / 学习提效
 
-First, run the development server:
+## 核心思路
+
+人们在知乎收藏了大量干货，却只停留在「收藏」这个动作。知行读取你的知乎收藏夹，用 AI 分拣出真正**能做**的和**值得记**的，转成两分钟就能完成的**行动卡**与翻面自测的**闪卡**，按艾宾浩斯式间隔每天推送；做完的行动可以一句话回访作者，让好内容知道自己被用过。
+
+## 目标用户
+
+收藏夹里躺着几十上百条「以后再看」的知乎用户；想把碎片学习变成日常行动的学生与职场新人。
+
+## 核心体验
+
+1. 用知乎账号登录（或体验模式）→ 选一个收藏夹
+2. AI 分拣：能做的 / 值得记的 / 放过的（故事、情绪、争论不硬转）
+3. 筹划页勾选想养成的卡片，每张带「做什么 / 练什么」标签与出处
+4. 今日页日历纸：**宜**（行动卡：做了 / 今天不做）· **记**（闪卡：记得 / 模糊 / 忘了）· **忌**（每日一句）
+5. 成功升级、遗忘回落，间隔 1 / 2 / 4 / 7 / 15 天，六次成功后内化淡出
+6. 全部完成盖「知行合一」印；行动卡可一键复制留言去原文告诉作者
+
+## 技术方案
+
+Next.js 16（App Router）· React 19 · Tailwind 4 · Bun。服务端只负责「知乎收藏夹 → AI → 卡片」，用户进度保存在浏览器 localStorage；调度器、状态机、标签词表为纯函数模块，`bun test` 全覆盖。知乎响应带本地快照，接口限流时自动回退。
+
+## 使用的知乎开放能力
+
+- 知乎登录 OAuth（`state` 校验）与授权用户基础信息
+- 用户数据 API：收藏夹列表、收藏夹内容
+- 知乎直答（可选 AI 提供方，OpenAI 兼容接口）
+
+## 与社区生态的契合
+
+知行不生产内容，它让已有的好内容被**用起来**：每张卡都有出处，每次完成都可以回到原回答留言。答主收到的不再只是点赞，而是「有人真的照做了」。
+
+## 本地运行
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
+cp .env.example .env.local   # 填入 ZHIHU_ACCESS_SECRET 与 DASHSCOPE_API_KEY
+bun run dev
+bun run test
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+演示多日效果：`/today?date=2026-09-20`。

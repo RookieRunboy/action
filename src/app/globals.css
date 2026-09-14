@@ -591,3 +591,60 @@ body {
   padding: 12px 16px;
 }
 
+/* ───────── 闪卡 ───────── */
+.flash {
+  position: relative;
+  margin-top: 4px;
+  padding: 18px 20px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--paper-3);
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 6px 14px -8px rgba(0, 0, 0, 0.35);
+  transform: rotate(-0.4deg);
+}
+.flash-progress {
+  position: absolute;
+  right: 14px;
+  top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.flash-front {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--ink);
+  padding-right: 40px;
+}
+.flash-back {
+  font-family: var(--font-song);
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.flash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.btn-solid-ink {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.btn-solid-ink:hover:not(:disabled) { background: var(--seal-2); border-color: var(--seal-2); }
+.later-row {
+  padding: 12px 0 12px 42px;
+  border-bottom: 1px dashed var(--rule);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.later-row:last-child { border-bottom: 0; }
+
+
