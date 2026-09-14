@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { advanceQueue, commitSelection, dismissCard, emptyState, ensureQueue, importCards, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey } from "@/lib/state";
+import { advanceQueue, commitSelection, dismissCard, emptyState, ensureQueue, importCards, libraryKey, parseLibrary, parseState, recordResult, selectionFor, storageKey, visibleCandidates } from "@/lib/state";
 import type { ActionCard, Card, CardsResponse, FlashCard, FolderScan, StateV2 } from "@/lib/types";
 
 const D = "2026-09-14";
@@ -292,5 +292,23 @@ describe("dismissCard", () => {
   test("未知 id 返回原状态", () => {
     const s = importCards(emptyState(), [action("a")], 5, scan);
     expect(dismissCard(s, "nope")).toEqual(s);
+  });
+});
+
+describe("visibleCandidates", () => {
+  test("隐藏 dismissed，保留 queued/active/internalized 与无状态", () => {
+    const cards: Card[] = [action("a"), action("b"), flash("f"), action("c")];
+    let s = importCards(emptyState(), [action("a"), action("b"), flash("f")], 5, scan);
+    s = dismissCard(s, "b");
+    s = { ...s, states: { ...s.states, f: { ...s.states.f, status: "internalized" } } };
+    expect(visibleCandidates(cards, s.states).map((c) => c.id)).toEqual(["a", "f", "c"]);
+  });
+  test("按 do 标签筛，且仍隐藏 dismissed", () => {
+    const cards: Card[] = [action("a"), action("b"), flash("f")];
+    let s = importCards(emptyState(), cards, 5, scan);
+    s = dismissCard(s, "b");
+    expect(visibleCandidates(cards, s.states, "冥想").map((c) => c.id)).toEqual(["a"]);
+    expect(visibleCandidates(cards, s.states, "阅读").map((c) => c.id)).toEqual(["f"]);
+    expect(visibleCandidates(cards, s.states, "运动")).toEqual([]);
   });
 });

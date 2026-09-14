@@ -1,21 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { Card, CardsResponse, StateV2 } from "@/lib/types";
-import { commitSelection, emptyState, loadLibrary, loadState, saveLibrary, saveState, selectionFor } from "@/lib/state";
+import Link from "next/link";
+import type { CardsResponse, FolderScan, StateV2 } from "@/lib/types";
+import { dismissCard, emptyState, importCards, loadLibrary, loadState, saveLibrary, saveState, visibleCandidates } from "@/lib/state";
 import { AppShell, type ClientSession } from "./AppShell";
 import { CandidateRow } from "./CandidateRow";
 import { TagChips } from "./TagChips";
 
+function scanOf(data: CardsResponse, scannedAt: number): { token: string } & FolderScan {
+  return {
+    token: data.folder.urlToken,
+    title: data.folder.title,
+    counts: data.counts,
+    scannedAt,
+    provider: data.provider,
+  };
+}
+
 export function PlanPage({ session }: { session: ClientSession }) {
-  const router = useRouter();
   const [state, setState] = useState<StateV2>(emptyState);
   const [hydrated, setHydrated] = useState(false);
   const [data, setData] = useState<CardsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tag, setTag] = useState<string | null>(null);
   const [skipOpen, setSkipOpen] = useState(false);
   const [saveWarn, setSaveWarn] = useState(false);
@@ -23,11 +31,21 @@ export function PlanPage({ session }: { session: ClientSession }) {
 
   useEffect(() => {
     const lib = loadLibrary(session.identity);
-    setState(loadState(session.identity));
+    let s = loadState(session.identity);
+    if (lib) {
+      const scannedAt = s.folders[lib.folder.urlToken]?.scannedAt ?? Date.now();
+      s = importCards(s, lib.cards, Date.now(), scanOf(lib, scannedAt));
+    }
+    setState(s);
     setData(lib);
     setHydrated(true);
     if (!lib) setLoading(true);
   }, [session.identity]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!saveState(session.identity, state)) setSaveWarn(true);
+  }, [state, hydrated, session.identity]);
 
   const ingest = useCallback(async () => {
     abortRef.current?.abort();
@@ -43,6 +61,7 @@ export function PlanPage({ session }: { session: ClientSession }) {
       const lib = j as CardsResponse;
       saveLibrary(session.identity, lib);
       setData(lib);
+      setState((prev) => importCards(prev, lib.cards, Date.now(), scanOf(lib, Date.now())));
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
       setError((e as Error).message);
@@ -56,43 +75,28 @@ export function PlanPage({ session }: { session: ClientSession }) {
     void ingest();
   }, [hydrated, data, error, ingest]);
 
-  useEffect(() => {
-    if (data) setSelected(selectionFor(state, data.cards));
-  }, [data, state]);
+  const listed = useMemo(
+    () => (data ? visibleCandidates(data.cards, state.states) : []),
+    [data, state.states],
+  );
 
   const doTags = useMemo(() => {
     const set = new Set<string>();
-    data?.cards.forEach((c) => c.tags.do.forEach((t) => set.add(t)));
+    listed.forEach((c) => c.tags.do.forEach((t) => set.add(t)));
     return [...set];
-  }, [data]);
+  }, [listed]);
 
-  const visible: Card[] = useMemo(() => (data ? data.cards.filter((c) => tag === null || c.tags.do.includes(tag)) : []), [data, tag]);
+  useEffect(() => {
+    if (tag !== null && !doTags.includes(tag)) setTag(null);
+  }, [tag, doTags]);
 
-  function toggle(id: string, checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
+  const visible = useMemo(
+    () => (data ? visibleCandidates(data.cards, state.states, tag) : []),
+    [data, state.states, tag],
+  );
 
-  function commit() {
-    if (!data) return;
-    const next = commitSelection(state, data.cards, selected, Date.now(), {
-      token: data.folder.urlToken,
-      title: data.folder.title,
-      counts: data.counts,
-      scannedAt: Date.now(),
-      provider: data.provider,
-    });
-    const ok = saveState(session.identity, next);
-    if (!ok) {
-      setSaveWarn(true);
-      setState(next);
-      return;
-    }
-    router.push("/today");
+  function remove(id: string) {
+    setState((prev) => dismissCard(prev, id));
   }
 
   const c = data?.counts;
@@ -104,7 +108,12 @@ export function PlanPage({ session }: { session: ClientSession }) {
         <section className="leaf px-7 py-6 sm:px-9">
           <p className="eyebrow">筹划</p>
           <h1 className="song mt-1 text-[22px] font-semibold text-ink">从收藏里挑出想养成的</h1>
-          <p className="mt-1 text-sm text-ink-2">「做」是两分钟能完成的动作，「记」是翻面自测的闪卡。默认全选，取消不想要的。</p>
+          <p className="mt-1 text-sm text-ink-2">
+            「做」是两分钟能完成的动作，「记」是翻面自测的闪卡。扫描后默认加入，不顺眼就删。
+            {" "}
+            <Link href="/today" className="text-link underline decoration-[var(--rule)] underline-offset-2">去今日</Link>
+          </p>
+          {saveWarn && <p className="mt-2 text-xs text-[#e8897a]">本浏览器无法保存进度，进度只在本次会话有效。</p>}
 
           {loading && (
             <div className="mt-6 space-y-5" aria-label="正在读收藏">
@@ -141,9 +150,15 @@ export function PlanPage({ session }: { session: ClientSession }) {
               <div className="mt-5"><TagChips tags={doTags} active={tag} onChange={setTag} /></div>
               <div className="mt-2">
                 {visible.map((card) => (
-                  <CandidateRow key={card.id} card={card} checked={selected.has(card.id)} state={state.states[card.id]} onToggle={toggle} />
+                  <CandidateRow key={card.id} card={card} state={state.states[card.id]} onDismiss={remove} />
                 ))}
-                {visible.length === 0 && <p className="py-6 text-sm text-ink-3">这个标签下没有卡片。</p>}
+                {visible.length === 0 && (
+                  <p className="py-6 text-sm text-ink-3">
+                    {tag !== null
+                      ? "这个标签下没有卡片。"
+                      : <>不顺眼的都删了。<Link href="/today" className="text-link underline decoration-[var(--rule)] underline-offset-2">去今日</Link></>}
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -195,20 +210,6 @@ export function PlanPage({ session }: { session: ClientSession }) {
           )}
         </aside>
       </div>
-
-      {data && data.cards.length > 0 && !loading && (
-        <div className="sticky-bar">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-2 sm:px-4">
-            <span className="min-w-0 text-sm text-wall-dim">
-              已选 <span className="tabular-nums text-white">{selected.size}</span> / {data.cards.length} 张
-              {saveWarn && <span className="ml-3 text-[#e8897a]">本浏览器无法保存进度，进度只在本次会话有效。</span>}
-            </span>
-            <button type="button" className="btn btn-seal" onClick={commit} disabled={selected.size === 0 && Object.keys(state.states).length === 0}>
-              加入知行 · 已选 {selected.size} 张
-            </button>
-          </div>
-        </div>
-      )}
     </AppShell>
   );
 }

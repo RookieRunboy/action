@@ -202,3 +202,16 @@ export function selectionFor(s: StateV2, cards: Card[]): Set<string> {
   }
   return out;
 }
+
+/** 筹划页列表：隐藏 dismissed；可选按 do 标签筛。无状态的卡仍显示。 */
+export function visibleCandidates(
+  cards: Card[],
+  states: Record<string, CardState>,
+  tag: string | null = null,
+): Card[] {
+  return cards.filter((c) => {
+    if (states[c.id]?.status === "dismissed") return false;
+    if (tag !== null && !c.tags.do.includes(tag)) return false;
+    return true;
+  });
+}

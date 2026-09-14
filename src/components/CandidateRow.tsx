@@ -4,9 +4,8 @@ import type { Card, CardState } from "@/lib/types";
 
 interface Props {
   card: Card;
-  checked: boolean;
   state?: CardState;
-  onToggle: (id: string, checked: boolean) => void;
+  onDismiss: (id: string) => void;
 }
 
 const TYPE_LABEL: Record<string, string> = { answer: "回答", article: "文章", zvideo: "视频", pin: "想法", question: "问题" };
@@ -19,28 +18,25 @@ function statusWord(s?: CardState): string {
   return "";
 }
 
-export function CandidateRow({ card, checked, state, onToggle }: Props) {
-  const inputId = `cand-${card.id}`;
-  const locked = state?.status === "internalized";
+export function CandidateRow({ card, state, onDismiss }: Props) {
   const text = card.kind === "action" ? card.action : card.front;
   const author = card.source.author?.name;
   return (
-    <div className={`cand ${checked ? "" : "off"}`}>
-      <input
-        id={inputId}
-        type="checkbox"
-        className="box !mt-1"
-        checked={checked}
-        disabled={locked}
-        onChange={(e) => onToggle(card.id, e.target.checked)}
-        aria-label={`${checked ? "取消" : "加入"}：${text}`}
-      />
+    <div className="cand">
+      <button
+        type="button"
+        className="btn btn-text !mt-0.5 !p-0 !text-[18px] leading-none text-ink-3 hover:!text-seal"
+        onClick={() => onDismiss(card.id)}
+        aria-label={`删除：${text}`}
+      >
+        ×
+      </button>
       <span className={`kind-glyph ${card.kind}`} aria-label={card.kind === "action" ? "行动卡" : "闪卡"}>
         {card.kind === "action" ? "做" : "记"}
       </span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <label htmlFor={inputId} className="cand-text cursor-pointer">{text}</label>
+          <span className="cand-text">{text}</span>
           {card.tags.do.map((t) => <span key={t} className="chip">{t}</span>)}
           {card.tags.train.map((t) => <span key={t} className="chip train">{t}</span>)}
           {state && <span className="status-word ml-auto">{statusWord(state)}</span>}
