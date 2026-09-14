@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { INGEST_LIMIT, ingestLibrary, LIBRARY_TOKEN, mergeRecentItems, scanFolder, validateQuote } from "@/lib/pipeline";
+import { INGEST_LIMIT, ingestLibrary, LIBRARY_TOKEN, mergeRecentItems, scanFolder, toActionCards, validateQuote } from "@/lib/pipeline";
 import type { ChatFn } from "@/lib/llm";
 import type { FavFolder, FavItem } from "@/lib/types";
 
@@ -121,6 +121,114 @@ describe("scanFolder", () => {
     expect(res.skipped).toEqual([{ id: "i3", title: "游戏台词", url: "https://www.zhihu.com/answer/i3", reason: "情绪共鸣型，没有可做的动作" }]);
     // i4 被 AI 漏掉 → 视为 skip，理由固定
     expect(res.cards.some((c) => c.id === "i4")).toBe(false);
+  });
+});
+
+/** 假 LLM：一律标成 action，并给每条都造卡。生活场景过滤必须由生产代码完成。 */
+function naiveAllActionChat(actionText: string): ChatFn {
+  return async <T,>(system: string, user: string): Promise<T> => {
+    const ids = [...user.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]!);
+    if (system.includes("分拣员")) {
+      return { items: ids.map((id) => ({ id, kind: "action", reason: "有具体步骤" })) } as T;
+    }
+    if (system.includes("行动教练")) {
+      return {
+        items: ids.map((id) => ({
+          id,
+          action: actionText,
+          why: "作者说可以立刻开始",
+          sourceQuote: "摘要",
+          replyDraft: "我照做了",
+          tags: { do: ["其他"], train: [] },
+        })),
+      } as T;
+    }
+    if (system.includes("出题")) {
+      return {
+        items: ids.map((id) => ({
+          id,
+          front: "这条要记住什么？",
+          back: "技术或校准要领",
+          sourceQuote: "摘要",
+          tags: { do: ["其他"], train: [] },
+        })),
+      } as T;
+    }
+    throw new Error("unexpected prompt");
+  };
+}
+
+describe("scanFolder 生活场景", () => {
+  test("naive 全标 action 时按标题摘要纠正具名路径", async () => {
+    process.env.ZHIXING_CACHE_DIR = `/tmp/zx-life-scene-${Date.now()}`;
+    const lifeItems = [
+      item("p1", "超负荷运球怎么练", "左手运球的同时右手持网球 30 秒，用超负荷刺激弱侧。"),
+      item("p2", "如何调坐垫", "用吊坠法校准坐垫前后和高度，吊线对准膝前。"),
+      item("p3", "脚掌发力", "原地踮脚 3 次，只抬脚掌，不要借腿跳。"),
+      item("p4", "靠墙站检查体态", "靠墙站，后脑勺、肩胛、骶骨、脚跟贴墙。"),
+      item("p5", "工位含胸", "坐直，交叉抱肘，向后夹肩胛，停两秒。"),
+    ];
+    const res = await scanFolder(
+      { identity: "life", folderToken: "697", refresh: true },
+      {
+        chat: naiveAllActionChat("现在坐下做一次最小一步"),
+        provider: "假模型",
+        fetchFolders: async () => ({ folders, stale: false }),
+        fetchItems: async () => ({ items: lifeItems, total: lifeItems.length, stale: false }),
+      },
+    );
+
+    const card = (title: string) => res.cards.find((c) => c.source.title === title);
+    const skipped = (title: string) => res.skipped.find((s) => s.title === title);
+
+    expect(card("超负荷运球怎么练")).toBeUndefined();
+    expect(skipped("超负荷运球怎么练")).toBeTruthy();
+
+    expect(card("如何调坐垫")?.kind).toBe("flash");
+    expect(res.cards.some((c) => c.kind === "action" && c.source.title === "如何调坐垫")).toBe(false);
+
+    expect(card("脚掌发力")?.kind).toBe("action");
+    expect(card("靠墙站检查体态")?.kind).toBe("action");
+    expect(card("工位含胸")?.kind).toBe("action");
+  });
+});
+
+describe("toActionCards 生活场景过滤", () => {
+  test("行动原文不是生活微步骤则不发卡", async () => {
+    process.env.ZHIXING_CACHE_DIR = `/tmp/zx-action-filter-${Date.now()}`;
+    const it = item("a1", "工位拉伸", "坐着也能活动肩背。");
+    const chat: ChatFn = async <T,>(): Promise<T> =>
+      ({
+        items: [{
+          id: "a1",
+          action: "左手运球同时右手持网球 30 秒",
+          why: "作者说要练",
+          sourceQuote: "坐着也能活动肩背",
+          replyDraft: "我试了",
+          tags: { do: ["运动"], train: ["体能"] },
+        }],
+      }) as T;
+    const cards = await toActionCards([it], chat, "697", new Map([["a1", "有步骤"]]));
+    expect(cards).toHaveLength(0);
+  });
+
+  test("踮脚微步骤会发卡", async () => {
+    process.env.ZHIXING_CACHE_DIR = `/tmp/zx-action-ok-${Date.now()}`;
+    const it = item("a2", "脚掌发力", "原地踮脚 3 次，只抬脚掌。");
+    const chat: ChatFn = async <T,>(): Promise<T> =>
+      ({
+        items: [{
+          id: "a2",
+          action: "原地踮脚 3 次，只抬脚掌",
+          why: "作者说先抬脚掌",
+          sourceQuote: "原地踮脚 3 次，只抬脚掌",
+          replyDraft: "我踮了三下",
+          tags: { do: ["运动"], train: ["体能"] },
+        }],
+      }) as T;
+    const cards = await toActionCards([it], chat, "697", new Map([["a2", "能做"]]));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.action).toContain("踮脚");
   });
 });
 

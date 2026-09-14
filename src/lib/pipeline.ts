@@ -2,7 +2,7 @@ import type { ActionCard, Card, CardsResponse, FavItem, FlashCard, SkippedItem }
 import { cacheGet, cacheSet, hashKey } from "./cache";
 import { chatJSON, providerLabel, type ChatFn } from "./llm";
 import { getFavlistItems, getFavlists } from "./zhihu";
-import { ACTION_SYSTEM, FLASH_SYSTEM, SORT_SYSTEM } from "./prompts";
+import { ACTION_SYSTEM, FLASH_SYSTEM, SORT_SYSTEM, applyLifeScenePolicy } from "./prompts";
 import { normalizeTags } from "./tags";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -73,12 +73,21 @@ function normalizeKind(k: unknown): SortKind {
   return "skip";
 }
 
+function applySortPolicy(items: FavItem[], rows: SortRow[]): SortRow[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  return rows.map((r) => {
+    const it = byId.get(r.id);
+    if (!it) return r;
+    return { ...r, kind: applyLifeScenePolicy({ kind: r.kind, title: it.title, summary: it.summary }) };
+  });
+}
+
 /** 返回 id → 分拣结果；AI 漏掉的条目不在结果中。24 小时缓存。 */
 export async function sortItems(items: FavItem[], chat: ChatFn, opts: { identity: string; refresh?: boolean }): Promise<Map<string, SortRow>> {
   const key = hashKey("sort-v2", opts.identity, ...items.map((i) => i.id));
   if (!opts.refresh) {
     const hit = await cacheGet<SortRow[]>("sort", key, DAY);
-    if (hit) return new Map(hit.map((r) => [r.id, r]));
+    if (hit) return new Map(applySortPolicy(items, hit).map((r) => [r.id, r]));
   }
   const batches = await Promise.all(
     chunk(items, SORT_BATCH).map((b) => chat<{ items?: Partial<SortRow>[] }>(SORT_SYSTEM, b.map(describeItem).join("\n"), { temperature: 0.2, maxTokens: 4000 })),
@@ -91,8 +100,9 @@ export async function sortItems(items: FavItem[], chat: ChatFn, opts: { identity
       rows.push({ id: r.id, kind: normalizeKind(r.kind), reason: clip(r.reason, LIMITS.reason) || "没有说明" });
     }
   }
-  await cacheSet("sort", key, rows);
-  return new Map(rows.map((r) => [r.id, r]));
+  const adjusted = applySortPolicy(items, rows);
+  await cacheSet("sort", key, adjusted);
+  return new Map(adjusted.map((r) => [r.id, r]));
 }
 
 // ───────── 引句校验 ─────────
@@ -162,10 +172,11 @@ async function convert<TRaw extends { id: string }, TCard extends Card>(
   return items.map((it) => result.get(it.id)).filter((c): c is TCard => !!c);
 }
 
-export function toActionCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<ActionCard[]> {
-  return convert<RawAction, ActionCard>("convert-a", ACTION_SYSTEM, items, chat, (it, raw) => {
+export async function toActionCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<ActionCard[]> {
+  const cards = await convert<RawAction, ActionCard>("convert-a", ACTION_SYSTEM, items, chat, (it, raw) => {
     const action = clip(raw.action, LIMITS.action);
     if (!action) return null;
+    if (applyLifeScenePolicy({ kind: "action", title: it.title, summary: it.summary, action }) !== "action") return null;
     return {
       id: it.id,
       kind: "action",
@@ -178,6 +189,9 @@ export function toActionCards(items: FavItem[], chat: ChatFn, folderToken: strin
       reason: reasons.get(it.id) || "",
     };
   });
+  return cards.filter(
+    (c) => applyLifeScenePolicy({ kind: "action", title: c.source.title, summary: c.source.summary, action: c.action }) === "action",
+  );
 }
 
 export function toFlashCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<FlashCard[]> {
