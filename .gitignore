@@ -45,3 +45,9 @@ next-env.d.ts
 .cache/
 .tmp/
 .env.local
+
+# brainstorming visual companion
+.superpowers/
+
+# worktrees
+.worktrees/
