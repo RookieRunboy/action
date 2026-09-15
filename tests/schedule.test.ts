@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { addDays, isValidISODate } from "@/lib/dates";
-import { applyResult, buildQueue, CAPS, INTERVALS, newCardState, NEW_PER_DAY, resultOn, streak, summarize } from "@/lib/schedule";
+import { advanceGroup, applyResult, buildGroup, GROUP_SIZE, groupComplete, INTERVALS, newCardState, resultOn, streak, summarize } from "@/lib/schedule";
 import type { CardState } from "@/lib/types";
 
 const D = "2026-09-14";
@@ -71,68 +71,172 @@ describe("applyResult", () => {
   });
 });
 
-describe("buildQueue", () => {
-  test("到期卡优先，按 box 升序再 due 升序，受上限约束", () => {
+function mark(states: Record<string, CardState>, ids: string[], date: string) {
+  const next = { ...states };
+  for (const id of ids) {
+    const result = next[id].kind === "action" ? "did" as const : "remembered" as const;
+    next[id] = applyResult(next[id], result, date);
+  }
+  return next;
+}
+
+describe("buildGroup", () => {
+  test("混排一组最多 3 张，到期优先（不论 kind），按 box、due、addedAt", () => {
     const states = index([
-      active("a1", "action", 2, "2026-09-10"),
-      active("a2", "action", 0, "2026-09-13"),
-      active("a3", "action", 0, "2026-09-12"),
-      active("a4", "action", 1, D),
-      active("a5", "action", 0, "2026-09-20"), // 未到期
+      active("a-late", "action", 2, "2026-09-10", { addedAt: 10 }),
+      active("f-early", "flash", 0, "2026-09-12", { addedAt: 20 }),
+      active("a-mid", "action", 0, "2026-09-13", { addedAt: 30 }),
+      active("a-box1", "action", 1, D, { addedAt: 40 }),
+      active("f-future", "flash", 0, "2026-09-20", { addedAt: 1 }),
+      queued("q1", "flash", 1),
     ]);
-    const { queue } = buildQueue(states, D);
-    expect(queue.actions).toEqual(["a3", "a2", "a4"]);
-    expect(queue.actions.length).toBe(CAPS.action);
+    const { queue } = buildGroup(states, D);
+    expect(queue.ids).toEqual(["f-early", "a-mid", "a-box1"]);
+    expect(queue.ids.length).toBe(GROUP_SIZE);
   });
-  test("有空位时按 addedAt 引入新卡，数量受 NEW_PER_DAY 限制，并激活", () => {
-    const states = index([queued("q3", "action", 3), queued("q1", "action", 1), queued("q2", "action", 2)]);
-    const r = buildQueue(states, D);
-    expect(r.queue.actions).toEqual(["q1", "q2"]);
-    expect(r.queue.actions.length).toBe(NEW_PER_DAY.action);
-    expect(r.states.q1.status).toBe("active");
-    expect(r.states.q1.introducedAt).toBe(D);
-    expect(r.states.q1.due).toBe(D);
+  test("不足 3 张时组可以更小", () => {
+    const states = index([active("a1", "action", 0, D), queued("q1", "flash", 1)]);
+    expect(buildGroup(states, D).queue.ids).toEqual(["a1", "q1"]);
+  });
+  test("到期之后按 addedAt 引入 queued，进入组时激活", () => {
+    const states = index([
+      active("a1", "action", 0, D),
+      queued("q3", "flash", 3),
+      queued("q1", "action", 1),
+      queued("q2", "flash", 2),
+    ]);
+    const r = buildGroup(states, D);
+    expect(r.queue.ids).toEqual(["a1", "q1", "q2"]);
+    expect(r.states.q1).toMatchObject({ status: "active", introducedAt: D, due: D });
+    expect(r.states.q2).toMatchObject({ status: "active", introducedAt: D, due: D });
     expect(r.states.q3.status).toBe("queued");
   });
-  test("闪卡上限 5、每日新卡 3", () => {
+  test("跳过 dismissed、internalized、当日已有结果、以及未到期的 active", () => {
     const states = index([
-      active("f1", "flash", 0, D), active("f2", "flash", 0, D), active("f3", "flash", 0, D),
-      queued("n1", "flash", 1), queued("n2", "flash", 2), queued("n3", "flash", 3), queued("n4", "flash", 4),
+      { ...active("gone", "action", 0, D), status: "dismissed", due: null },
+      { ...active("done", "flash", 5, D), status: "internalized", due: null },
+      applyResult(active("marked", "action", 0, D), "did", D),
+      active("later", "flash", 0, "2026-09-20"),
+      queued("q1", "action", 1),
     ]);
-    const { queue } = buildQueue(states, D);
-    expect(queue.flash.length).toBe(5);
-    expect(queue.flash.slice(0, 3).sort()).toEqual(["f1", "f2", "f3"]);
-    expect(queue.flash.slice(3)).toEqual(["n1", "n2"]);
+    expect(buildGroup(states, D).queue.ids).toEqual(["q1"]);
   });
-  test("幂等：同一输入两次结果一致，已激活的新卡第二次不再计入新卡额度", () => {
-    const states = index([queued("q1", "action", 1), queued("q2", "action", 2), queued("q3", "action", 3)]);
-    const first = buildQueue(states, D);
-    const second = buildQueue(first.states, D, first.queue);
+  test("existing.ids 非空则冻结：不重排、不补位，即使已有当日结果", () => {
+    const done = applyResult(active("a1", "action", 0, D), "did", D);
+    const states = index([done, active("a2", "action", 0, D), active("a3", "action", 0, D), queued("q1", "flash", 1)]);
+    const { queue, states: next } = buildGroup(states, D, { ids: ["a1"] });
+    expect(queue.ids).toEqual(["a1"]);
+    expect(next.q1.status).toBe("queued");
+  });
+  test("冻结时丢掉 dismissed，不补位", () => {
+    const states = index([
+      { ...active("a1", "action", 0, D), status: "dismissed", due: null },
+      active("a2", "action", 0, D),
+      active("a3", "action", 0, D),
+    ]);
+    const { queue } = buildGroup(states, D, { ids: ["a1", "a2"] });
+    expect(queue.ids).toEqual(["a2"]);
+  });
+  test("当日组全部 dismissed 或缺失时选取下一组，不空置", () => {
+    const states = index([
+      { ...active("a1", "action", 0, D), status: "dismissed", due: null },
+      { ...active("a2", "action", 0, D), status: "dismissed", due: null },
+      queued("q1", "action", 1),
+      queued("q2", "flash", 2),
+      queued("q3", "action", 3),
+    ]);
+    const r = buildGroup(states, D, { ids: ["a1", "a2", "gone"] });
+    expect(r.queue.ids).toEqual(["q1", "q2", "q3"]);
+    expect(r.states.q1.status).toBe("active");
+    expect(r.states.q1.introducedAt).toBe(D);
+  });
+  test("existing 为空或缺失则选取下一组", () => {
+    const states = index([queued("q1", "action", 1), queued("q2", "flash", 2)]);
+    expect(buildGroup(states, D).queue.ids).toEqual(["q1", "q2"]);
+    expect(buildGroup(states, D, { ids: [] }).queue.ids).toEqual(["q1", "q2"]);
+  });
+  test("幂等：冻结后再次 buildGroup 结果一致，不把组外 queued 拉进来", () => {
+    const states = index([
+      queued("q1", "action", 1), queued("q2", "action", 2), queued("q3", "action", 3), queued("q4", "action", 4),
+    ]);
+    const first = buildGroup(states, D);
+    const second = buildGroup(first.states, D, first.queue);
+    expect(first.queue.ids).toEqual(["q1", "q2", "q3"]);
     expect(second.queue).toEqual(first.queue);
-    expect(second.states.q3.status).toBe("queued");
-  });
-  test("冻结队列中的卡不被移除，即使已有当日结果", () => {
-    const done = applyResult(active("a1", "action", 0, D), "did", D); // due 明天
-    const states = index([done, active("a2", "action", 0, D), active("a3", "action", 0, D), active("a4", "action", 0, D)]);
-    const { queue } = buildQueue(states, D, { actions: ["a1"], flash: [] });
-    expect(queue.actions[0]).toBe("a1");
-    expect(queue.actions.length).toBe(3);
-  });
-  test("later 的卡不占上限，会补进一张", () => {
-    const later = applyResult(active("a1", "action", 0, D), "later", D);
-    const states = index([later, active("a2", "action", 0, D), active("a3", "action", 0, D), active("a4", "action", 0, D)]);
-    const { queue } = buildQueue(states, D, { actions: ["a1", "a2", "a3"], flash: [] });
-    expect(queue.actions).toEqual(["a1", "a2", "a3", "a4"]);
-  });
-  test("dismissed 的卡从冻结队列移除", () => {
-    const states = index([{ ...active("a1", "action", 0, D), status: "dismissed", due: null }, active("a2", "action", 0, D)]);
-    const { queue } = buildQueue(states, D, { actions: ["a1", "a2"], flash: [] });
-    expect(queue.actions).toEqual(["a2"]);
+    expect(second.states.q4.status).toBe("queued");
   });
   test("不修改输入 states", () => {
     const states = index([queued("q1", "action", 1)]);
-    buildQueue(states, D);
+    buildGroup(states, D);
     expect(states.q1.status).toBe("queued");
+  });
+});
+
+describe("groupComplete / advanceGroup", () => {
+  test("组内全部有当日结果才算完成；did/later/remembered/vague/forgot 都算", () => {
+    const states = index([
+      applyResult(active("a1", "action", 0, D), "did", D),
+      applyResult(active("a2", "action", 0, D), "later", D),
+      applyResult(active("f1", "flash", 0, D), "remembered", D),
+      applyResult(active("f2", "flash", 0, D), "vague", D),
+      applyResult(active("f3", "flash", 0, D), "forgot", D),
+    ]);
+    expect(groupComplete(states, D, { ids: ["a1", "a2", "f1", "f2", "f3"] })).toBe(true);
+    expect(groupComplete(index([active("a1", "action", 0, D), active("a2", "action", 0, D)]), D, { ids: ["a1", "a2"] })).toBe(false);
+    expect(groupComplete(states, D, { ids: [] })).toBe(true);
+  });
+  test("groupComplete 忽略 dismissed 与缺失；幸存者都有结果则可 advance", () => {
+    const dismissed = { ...active("a1", "action", 0, D), status: "dismissed" as const, due: null };
+    const marked = applyResult(active("a2", "action", 0, D), "did", D);
+    expect(groupComplete(index([dismissed, marked]), D, { ids: ["a1", "a2", "gone"] })).toBe(true);
+    expect(groupComplete(index([dismissed, active("a2", "action", 0, D)]), D, { ids: ["a1", "a2"] })).toBe(false);
+    const next = advanceGroup(
+      index([dismissed, marked, queued("q1", "flash", 1)]),
+      D,
+      { ids: ["a1", "a2", "gone"] },
+    );
+    expect(next.queue.ids).toEqual(["q1"]);
+    expect(next.states.q1.status).toBe("active");
+  });
+  test("未全部标记时 advance 是 no-op", () => {
+    const built = buildGroup(index([
+      queued("a1", "action", 1), queued("a2", "action", 2), queued("a3", "action", 3), queued("a4", "action", 4),
+    ]), D);
+    const marked = mark(built.states, built.queue.ids.slice(0, 2), D);
+    const advanced = advanceGroup(marked, D, built.queue);
+    expect(advanced.queue.ids).toEqual(built.queue.ids);
+    expect(advanced.states.a4.status).toBe("queued");
+  });
+  test("全部标记后进入下一组；没有剩余时为空且刷新不绕回", () => {
+    let states = index([queued("a1", "action", 1), queued("f1", "flash", 2), queued("a2", "action", 3)]);
+    const first = buildGroup(states, D);
+    expect(first.queue.ids).toEqual(["a1", "f1", "a2"]);
+    states = mark(first.states, first.queue.ids, D);
+    const empty = advanceGroup(states, D, first.queue);
+    expect(empty.queue.ids).toEqual([]);
+    const again = advanceGroup(empty.states, D, empty.queue);
+    expect(again.queue.ids).toEqual([]);
+  });
+  test("同一天可通过连续分组完成超过 3 张行动和 5 张闪卡", () => {
+    const cards = [
+      ...["a1", "a2", "a3", "a4"].map((id, i) => queued(id, "action", i + 1)),
+      ...["f1", "f2", "f3", "f4", "f5", "f6"].map((id, i) => queued(id, "flash", i + 10)),
+    ];
+    const first = buildGroup(index(cards), D);
+    let states = first.states;
+    let queue = first.queue;
+    const done = { action: 0, flash: 0 };
+    let guard = 0;
+    while (queue.ids.length && guard++ < 20) {
+      states = mark(states, queue.ids, D);
+      for (const id of queue.ids) done[states[id].kind]++;
+      const next = advanceGroup(states, D, queue);
+      states = next.states;
+      queue = next.queue;
+    }
+    expect(done).toEqual({ action: 4, flash: 6 });
+    expect(queue.ids).toEqual([]);
+    expect(advanceGroup(states, D, queue).queue.ids).toEqual([]);
   });
 });
 

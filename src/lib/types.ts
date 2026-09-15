@@ -61,8 +61,7 @@ export interface CardState {
 }
 
 export interface DayQueue {
-  actions: string[];
-  flash: string[];
+  ids: string[];
 }
 
 export interface FolderCounts {

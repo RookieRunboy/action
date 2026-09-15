@@ -3,7 +3,7 @@ import { cacheGet, cacheSet, hashKey } from "./cache";
 import { chatJSON, providerLabel, type ChatFn } from "./llm";
 import { resolveIngestFolders } from "./folders";
 import { getFavlistItems, getFavlists } from "./zhihu";
-import { ACTION_SYSTEM, FLASH_SYSTEM, SORT_SYSTEM } from "./prompts";
+import { ACTION_SYSTEM, FLASH_SYSTEM, LIFE_SCENE_REASON, SORT_SYSTEM, applyLifeScenePolicy, lifeSceneVerdict } from "./prompts";
 import { normalizeTags } from "./tags";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -92,12 +92,27 @@ function normalizeKind(k: unknown): SortKind {
   return "skip";
 }
 
+function applySortPolicy(items: FavItem[], rows: SortRow[]): SortRow[] {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  return rows.map((r) => {
+    const it = byId.get(r.id);
+    if (!it) return r;
+    const verdict = lifeSceneVerdict({ kind: r.kind, title: it.title, summary: it.summary });
+    if (verdict.kind === r.kind) return r;
+    return { ...r, kind: verdict.kind, reason: verdict.reason || r.reason };
+  });
+}
+
+function isDailyLifeAction(title: string, summary: string, action: string): boolean {
+  return applyLifeScenePolicy({ kind: "action", title, summary, action }) === "action";
+}
+
 /** 返回 id → 分拣结果；AI 漏掉的条目不在结果中。24 小时缓存。 */
 export async function sortItems(items: FavItem[], chat: ChatFn, opts: { identity: string; refresh?: boolean }): Promise<Map<string, SortRow>> {
   const key = hashKey("sort-v2", opts.identity, ...items.map((i) => i.id));
   if (!opts.refresh) {
     const hit = await cacheGet<SortRow[]>("sort", key, DAY);
-    if (hit) return new Map(hit.map((r) => [r.id, r]));
+    if (hit) return new Map(applySortPolicy(items, hit).map((r) => [r.id, r]));
   }
   const batches = await Promise.all(
     chunk(items, SORT_BATCH).map((b) => chat<{ items?: Partial<SortRow>[] }>(SORT_SYSTEM, b.map(describeItem).join("\n"), { temperature: 0.2, maxTokens: 4000 })),
@@ -110,8 +125,9 @@ export async function sortItems(items: FavItem[], chat: ChatFn, opts: { identity
       rows.push({ id: r.id, kind: normalizeKind(r.kind), reason: clip(r.reason, LIMITS.reason) || "没有说明" });
     }
   }
-  await cacheSet("sort", key, rows);
-  return new Map(rows.map((r) => [r.id, r]));
+  const adjusted = applySortPolicy(items, rows);
+  await cacheSet("sort", key, adjusted);
+  return new Map(adjusted.map((r) => [r.id, r]));
 }
 
 // ───────── 引句校验 ─────────
@@ -181,10 +197,11 @@ async function convert<TRaw extends { id: string }, TCard extends Card>(
   return items.map((it) => result.get(it.id)).filter((c): c is TCard => !!c);
 }
 
-export function toActionCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<ActionCard[]> {
-  return convert<RawAction, ActionCard>("convert-a", ACTION_SYSTEM, items, chat, (it, raw) => {
+export async function toActionCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<ActionCard[]> {
+  const cards = await convert<RawAction, ActionCard>("convert-a", ACTION_SYSTEM, items, chat, (it, raw) => {
     const action = clip(raw.action, LIMITS.action);
     if (!action) return null;
+    if (!isDailyLifeAction(it.title, it.summary, action)) return null;
     return {
       id: it.id,
       kind: "action",
@@ -197,6 +214,8 @@ export function toActionCards(items: FavItem[], chat: ChatFn, folderToken: strin
       reason: reasons.get(it.id) || "",
     };
   });
+  // convert-a 无 TTL；命中时跳过 build，靠这里去掉旧的球场/健身房行动卡
+  return cards.filter((c) => isDailyLifeAction(c.source.title, c.source.summary, c.action));
 }
 
 export function toFlashCards(items: FavItem[], chat: ChatFn, folderToken: string, reasons: Map<string, string>): Promise<FlashCard[]> {
@@ -233,22 +252,11 @@ export async function scanFolder(input: ScanInput, deps: ScanDeps = {}): Promise
   const title = folder?.title || "收藏夹";
 
   const sorted = items.length ? await sortItems(items, chat, { identity, refresh }) : new Map<string, SortRow>();
-  const reasons = new Map([...sorted].map(([id, r]) => [id, r.reason]));
-  const actionItems = items.filter((i) => sorted.get(i.id)?.kind === "action");
-  const flashItems = items.filter((i) => sorted.get(i.id)?.kind === "knowledge");
-  const skipped: SkippedItem[] = items
-    .filter((i) => sorted.get(i.id)?.kind === "skip")
-    .map((i) => ({ id: i.id, title: i.title, url: i.url, reason: reasons.get(i.id) || "" }));
-
-  const [actions, flashes] = await Promise.all([
-    actionItems.length ? toActionCards(actionItems, chat, folderToken, reasons) : Promise.resolve([]),
-    flashItems.length ? toFlashCards(flashItems, chat, folderToken, reasons) : Promise.resolve([]),
-  ]);
-  const cards: Card[] = [...actions, ...flashes];
+  const { cards, skipped, counts } = await cardsFromSorted(items, sorted, chat, folderToken);
 
   return {
     folder: { urlToken: folderToken, title },
-    counts: { total: items.length, action: actions.length, flash: flashes.length, skip: skipped.length },
+    counts,
     cards,
     skipped,
     provider: deps.provider ?? providerLabel(),
@@ -273,6 +281,24 @@ export async function ingestLibrary(
   const stale = s1 || batches.some((b) => b.stale);
 
   const sorted = items.length ? await sortItems(items, chat, { identity: input.identity, refresh: input.refresh }) : new Map<string, SortRow>();
+  const { cards, skipped, counts } = await cardsFromSorted(items, sorted, chat, LIBRARY_TOKEN);
+
+  return {
+    folder: { urlToken: LIBRARY_TOKEN, title: "收藏" },
+    counts,
+    cards,
+    skipped,
+    provider: deps.provider ?? providerLabel(),
+    stale,
+  };
+}
+
+async function cardsFromSorted(
+  items: FavItem[],
+  sorted: Map<string, SortRow>,
+  chat: ChatFn,
+  folderToken: string,
+): Promise<{ cards: Card[]; skipped: SkippedItem[]; counts: { total: number; action: number; flash: number; skip: number } }> {
   const reasons = new Map([...sorted].map(([id, r]) => [id, r.reason]));
   const actionItems = items.filter((i) => sorted.get(i.id)?.kind === "action");
   const flashItems = items.filter((i) => sorted.get(i.id)?.kind === "knowledge");
@@ -281,16 +307,19 @@ export async function ingestLibrary(
     .map((i) => ({ id: i.id, title: i.title, url: i.url, reason: reasons.get(i.id) || "" }));
 
   const [actions, flashes] = await Promise.all([
-    actionItems.length ? toActionCards(actionItems, chat, LIBRARY_TOKEN, reasons) : Promise.resolve([]),
-    flashItems.length ? toFlashCards(flashItems, chat, LIBRARY_TOKEN, reasons) : Promise.resolve([]),
+    actionItems.length ? toActionCards(actionItems, chat, folderToken, reasons) : Promise.resolve([]),
+    flashItems.length ? toFlashCards(flashItems, chat, folderToken, reasons) : Promise.resolve([]),
   ]);
 
+  const kept = new Set(actions.map((c) => c.id));
+  for (const it of actionItems) {
+    if (kept.has(it.id)) continue;
+    skipped.push({ id: it.id, title: it.title, url: it.url, reason: LIFE_SCENE_REASON.notDaily });
+  }
+
   return {
-    folder: { urlToken: LIBRARY_TOKEN, title: "收藏" },
-    counts: { total: items.length, action: actions.length, flash: flashes.length, skip: skipped.length },
     cards: [...actions, ...flashes],
     skipped,
-    provider: deps.provider ?? providerLabel(),
-    stale,
+    counts: { total: items.length, action: actions.length, flash: flashes.length, skip: skipped.length },
   };
 }

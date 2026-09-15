@@ -4,8 +4,7 @@ import { addDays } from "./dates";
 /** 成功前所在盒子 → 下次间隔（天） */
 export const INTERVALS = [1, 2, 4, 7, 15];
 export const MAX_BOX = 5;
-export const CAPS: Record<CardKind, number> = { action: 3, flash: 5 };
-export const NEW_PER_DAY: Record<CardKind, number> = { action: 2, flash: 3 };
+export const GROUP_SIZE = 3;
 
 const SUCCESS: Result[] = ["did", "remembered"];
 const COUNTS_FOR_STREAK: Result[] = ["did", "remembered", "vague", "forgot"];
@@ -31,55 +30,106 @@ export function applyResult(state: CardState, result: Result, date: string): Car
   return { ...state, due: addDays(date, 1), history };
 }
 
-function queueKey(kind: CardKind): keyof DayQueue {
-  return kind === "action" ? "actions" : "flash";
+function cmpDue(a: CardState, b: CardState): number {
+  if (a.box !== b.box) return a.box - b.box;
+  if (a.due !== b.due) return a.due! < b.due! ? -1 : 1;
+  if (a.addedAt !== b.addedAt) return a.addedAt - b.addedAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
-/** 规范 §5.2。纯函数、幂等；返回新的队列与更新后的状态表。 */
-export function buildQueue(
+function cmpQueued(a: CardState, b: CardState): number {
+  if (a.addedAt !== b.addedAt) return a.addedAt - b.addedAt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function unmarked(state: CardState, date: string): boolean {
+  return resultOn(state, date) === undefined;
+}
+
+function keepPresent(states: Record<string, CardState>, ids: string[] | undefined): string[] {
+  return (ids ?? []).filter((id) => states[id] && states[id].status !== "dismissed");
+}
+
+/** 混排一组 ≤3。先丢掉 dismissed/缺失；有幸存者则冻结，否则从到期卡再 queued 取。 */
+export function buildGroup(
   states: Record<string, CardState>,
   date: string,
   existing?: DayQueue,
 ): { queue: DayQueue; states: Record<string, CardState> } {
   const next: Record<string, CardState> = { ...states };
-  const queue: DayQueue = { actions: [], flash: [] };
+  const existingIds = existing && Array.isArray(existing.ids) ? existing.ids : undefined;
+  const kept = keepPresent(next, existingIds);
+  if (kept.length > 0) return { queue: { ids: kept }, states: next };
 
-  for (const kind of ["action", "flash"] as CardKind[]) {
-    const key = queueKey(kind);
-    const cap = CAPS[kind];
-    // 1. 冻结队列：保留仍存在且未被取消的卡
-    const kept = (existing?.[key] ?? []).filter((id) => next[id] && next[id].status !== "dismissed");
-    const inQueue = new Set(kept);
-    const occupied = () => kept.filter((id) => resultOn(next[id], date) !== "later").length;
+  const due = Object.values(next)
+    .filter((s) => unmarked(s, date) && s.status === "active" && s.due !== null && s.due <= date)
+    .sort(cmpDue);
+  const fresh = Object.values(next)
+    .filter((s) => unmarked(s, date) && s.status === "queued")
+    .sort(cmpQueued);
 
-    // 2. 到期卡
-    const due = Object.values(next)
-      .filter((s) => s.kind === kind && s.status === "active" && s.due !== null && s.due <= date && !inQueue.has(s.id))
-      .sort((a, b) => a.box - b.box || (a.due! < b.due! ? -1 : a.due! > b.due! ? 1 : 0) || a.addedAt - b.addedAt);
-    for (const s of due) {
-      if (occupied() >= cap) break;
-      kept.push(s.id);
-      inQueue.add(s.id);
-    }
-
-    // 3. 新卡
-    const introducedToday = Object.values(next).filter((s) => s.kind === kind && s.introducedAt === date).length;
-    let budget = Math.min(NEW_PER_DAY[kind] - introducedToday, cap - occupied());
-    if (budget > 0) {
-      const fresh = Object.values(next)
-        .filter((s) => s.kind === kind && s.status === "queued")
-        .sort((a, b) => a.addedAt - b.addedAt || (a.id < b.id ? -1 : 1));
-      for (const s of fresh) {
-        if (budget <= 0) break;
-        next[s.id] = { ...s, status: "active", introducedAt: date, due: date };
-        kept.push(s.id);
-        inQueue.add(s.id);
-        budget--;
-      }
-    }
-    queue[key] = kept;
+  const ids: string[] = [];
+  for (const s of due) {
+    if (ids.length >= GROUP_SIZE) break;
+    ids.push(s.id);
   }
-  return { queue, states: next };
+  for (const s of fresh) {
+    if (ids.length >= GROUP_SIZE) break;
+    next[s.id] = { ...s, status: "active", introducedAt: date, due: date };
+    ids.push(s.id);
+  }
+  return { queue: { ids }, states: next };
+}
+
+export function groupComplete(states: Record<string, CardState>, date: string, queue: DayQueue): boolean {
+  return keepPresent(states, queue.ids).every((id) => resultOn(states[id], date) !== undefined);
+}
+
+/** 今日页空态与刷新。须在 ensureQueue 之后调用。 */
+export function todayFlags(
+  states: Record<string, CardState>,
+  date: string,
+  queue: DayQueue,
+): {
+  libraryEmpty: boolean;
+  completedToday: boolean;
+  groupDone: boolean;
+  showRefresh: boolean;
+  refreshEnabled: boolean;
+  sealed: boolean;
+} {
+  const present = keepPresent(states, queue.ids);
+  const hasGroup = present.length > 0;
+  const practicing = Object.values(states).some((s) => s.status === "queued" || s.status === "active");
+  const anyToday = Object.values(states).some((s) => resultOn(s, date) !== undefined);
+  const anySuccessToday = Object.values(states).some((s) => {
+    const r = resultOn(s, date);
+    return r !== undefined && SUCCESS.includes(r);
+  });
+  const libraryEmpty = !hasGroup && !practicing && !anyToday;
+  const completedToday = !hasGroup && !libraryEmpty;
+  const groupDone = groupComplete(states, date, queue);
+  return {
+    libraryEmpty,
+    completedToday,
+    groupDone,
+    showRefresh: hasGroup,
+    refreshEnabled: hasGroup && groupDone,
+    sealed: hasGroup ? groupDone && present.some((id) => {
+      const r = resultOn(states[id], date);
+      return r !== undefined && SUCCESS.includes(r);
+    }) : completedToday && anySuccessToday,
+  };
+}
+
+/** 组内未全部标记则冻结原组；否则从剩余未标记取下一组，没有则空（不绕回）。 */
+export function advanceGroup(
+  states: Record<string, CardState>,
+  date: string,
+  existing: DayQueue,
+): { queue: DayQueue; states: Record<string, CardState> } {
+  if (!groupComplete(states, date, existing)) return buildGroup(states, date, existing);
+  return buildGroup(states, date);
 }
 
 /** 规范 §5.3 */

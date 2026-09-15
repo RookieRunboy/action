@@ -1,5 +1,5 @@
-import type { Card, CardsResponse, CardState, FolderScan, Result, StateV2 } from "./types";
-import { applyResult, buildQueue, newCardState } from "./schedule";
+import type { Card, CardsResponse, CardState, DayQueue, FolderScan, Result, StateV2 } from "./types";
+import { advanceGroup, applyResult, buildGroup, newCardState } from "./schedule";
 
 export function emptyState(): StateV2 {
   return { version: 2, cards: {}, states: {}, queues: {}, folders: {} };
@@ -48,6 +48,23 @@ export function saveLibrary(identity: string, data: CardsResponse): boolean {
   }
 }
 
+function parseQueue(raw: unknown): DayQueue | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const ids = (raw as { ids?: unknown }).ids;
+  if (!Array.isArray(ids)) return undefined;
+  return { ids: ids.filter((id): id is string => typeof id === "string") };
+}
+
+function parseQueues(raw: unknown): Record<string, DayQueue> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, DayQueue> = {};
+  for (const [date, q] of Object.entries(raw as Record<string, unknown>)) {
+    const parsed = parseQueue(q);
+    if (parsed) out[date] = parsed;
+  }
+  return out;
+}
+
 export function parseState(raw: string | null): StateV2 {
   if (!raw) return emptyState();
   try {
@@ -57,7 +74,7 @@ export function parseState(raw: string | null): StateV2 {
       version: 2,
       cards: p.cards || {},
       states: p.states || {},
-      queues: p.queues || {},
+      queues: parseQueues(p.queues),
       folders: p.folders || {},
       lastFolder: p.lastFolder,
     };
@@ -82,6 +99,16 @@ export function saveState(identity: string, s: StateV2): boolean {
   } catch {
     return false;
   }
+}
+
+function withScan(
+  s: StateV2,
+  snapshots: Record<string, Card>,
+  states: Record<string, CardState>,
+  scan: { token: string } & FolderScan,
+): StateV2 {
+  const { token, ...folderScan } = scan;
+  return { ...s, cards: snapshots, states, folders: { ...s.folders, [token]: folderScan }, lastFolder: token };
 }
 
 /** 规范 §8.2「加入知行」的状态转换 */
@@ -109,14 +136,34 @@ export function commitSelection(
       states[card.id] = { ...cur, status: "dismissed", due: null };
     }
   }
-  const { token, ...folderScan } = scan;
-  return { ...s, cards: snapshots, states, folders: { ...s.folders, [token]: folderScan }, lastFolder: token };
+  return withScan(s, snapshots, states, scan);
 }
 
-/** 保证 queues[date] 存在并已补位；纯函数 */
-export function ensureQueue(s: StateV2, date: string): StateV2 {
+/** 扫描后全部转化卡入库；已有进度不变，dismissed 不复活。skip 不在 cards 里，不会入库。 */
+export function importCards(
+  s: StateV2,
+  cards: Card[],
+  now: number,
+  scan: { token: string } & FolderScan,
+): StateV2 {
+  const states: Record<string, CardState> = { ...s.states };
+  const snapshots: Record<string, Card> = { ...s.cards };
+  for (const card of cards) {
+    snapshots[card.id] = card;
+    if (!states[card.id]) states[card.id] = newCardState(card.id, card.kind, now);
+  }
+  return withScan(s, snapshots, states, scan);
+}
+
+/** 删除：dismissed、due null、保留 history。ensureQueue 会把它移出今日组。 */
+export function dismissCard(s: StateV2, id: string): StateV2 {
+  const cur = s.states[id];
+  if (!cur || cur.status === "dismissed") return s;
+  return { ...s, states: { ...s.states, [id]: { ...cur, status: "dismissed", due: null } } };
+}
+
+function withQueue(s: StateV2, date: string, queue: DayQueue, states: Record<string, CardState>): StateV2 {
   const existing = s.queues[date];
-  const { queue, states } = buildQueue(s.states, date, existing);
   const unchanged =
     existing !== undefined &&
     JSON.stringify(existing) === JSON.stringify(queue) &&
@@ -125,13 +172,25 @@ export function ensureQueue(s: StateV2, date: string): StateV2 {
   return { ...s, states, queues: { ...s.queues, [date]: queue } };
 }
 
+/** 保证 queues[date] 存在；已有则冻结，没有则建第一组。纯函数 */
+export function ensureQueue(s: StateV2, date: string): StateV2 {
+  const { queue, states } = buildGroup(s.states, date, s.queues[date]);
+  return withQueue(s, date, queue, states);
+}
+
+/** 组内全部有结果后换下一组；未完成则不变。 */
+export function advanceQueue(s: StateV2, date: string): StateV2 {
+  const existing = s.queues[date] ?? { ids: [] };
+  const { queue, states } = advanceGroup(s.states, date, existing);
+  return withQueue(s, date, queue, states);
+}
+
 export function recordResult(s: StateV2, id: string, result: Result, date: string): StateV2 {
   const cur = s.states[id];
   if (!cur) return s;
   const updated = applyResult(cur, result, date);
   if (updated === cur) return s;
-  const next: StateV2 = { ...s, states: { ...s.states, [id]: updated } };
-  return result === "later" ? ensureQueue(next, date) : next;
+  return { ...s, states: { ...s.states, [id]: updated } };
 }
 
 /** 筹划页默认勾选集（规范 §8.2） */
@@ -142,4 +201,17 @@ export function selectionFor(s: StateV2, cards: Card[]): Set<string> {
     if (!st || st.status !== "dismissed") out.add(c.id);
   }
   return out;
+}
+
+/** 筹划页列表：隐藏 dismissed；可选按 do 标签筛。无状态的卡仍显示。 */
+export function visibleCandidates(
+  cards: Card[],
+  states: Record<string, CardState>,
+  tag: string | null = null,
+): Card[] {
+  return cards.filter((c) => {
+    if (states[c.id]?.status === "dismissed") return false;
+    if (tag !== null && !c.tags.do.includes(tag)) return false;
+    return true;
+  });
 }
