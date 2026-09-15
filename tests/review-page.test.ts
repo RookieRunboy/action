@@ -1,20 +1,22 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, mock, beforeEach } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ClientSession } from "@/components/AppShell";
 import type { Card, CardState, StateV2 } from "@/lib/types";
-import { emptyState, saveState, storageKey } from "@/lib/state";
+import { emptyState, loadState, saveState } from "@/lib/state";
 import { todayISO } from "@/lib/dates";
+import type { Session } from "@/lib/session";
 
 // Mock next/navigation and @/lib/session
-let currentSession: any = null;
+let currentSession: Session | null = null;
 let redirectedUrl: string | null = null;
 
 mock.module("next/navigation", () => ({
   redirect: (url: string) => {
     redirectedUrl = url;
-    const err = new Error(`NEXT_REDIRECT:${url}`);
-    (err as any).digest = `NEXT_REDIRECT;replace;${url};307;`;
+    const err = Object.assign(new Error(`NEXT_REDIRECT:${url}`), {
+      digest: `NEXT_REDIRECT;replace;${url};307;`,
+    });
     throw err;
   },
   useRouter: () => ({
@@ -112,7 +114,7 @@ describe("Review route: /review/page.tsx", () => {
 
   test("Route auth guard: redirects to '/' when session is null", async () => {
     currentSession = null;
-    let thrown: any = null;
+    let thrown: unknown = null;
     try {
       await ReviewRoutePage({ searchParams: Promise.resolve({}) });
     } catch (e) {
@@ -124,6 +126,8 @@ describe("Review route: /review/page.tsx", () => {
 
   test("Route parameter parsing: date defaults to todayISO() and kind defaults to 'all'", async () => {
     currentSession = {
+      id: "s-1",
+      expiresAt: Date.now() + 60000,
       kind: "oauth",
       identity: "u-test-review",
       user: { name: "李四" },
@@ -143,6 +147,8 @@ describe("Review route: /review/page.tsx", () => {
 
   test("Route parameter parsing: accepts valid ISO date and falls back to todayISO() on invalid date", async () => {
     currentSession = {
+      id: "s-1",
+      expiresAt: Date.now() + 60000,
       kind: "oauth",
       identity: "u-test-review",
       user: { name: "李四" },
@@ -161,6 +167,8 @@ describe("Review route: /review/page.tsx", () => {
 
   test("Route parameter parsing: accepts 'action' and 'flash', falls back to 'all' for invalid kind", async () => {
     currentSession = {
+      id: "s-1",
+      expiresAt: Date.now() + 60000,
       kind: "oauth",
       identity: "u-test-review",
       user: { name: "李四" },
@@ -381,7 +389,7 @@ describe("ReviewPage component rendering", () => {
 
   test("loads state from storage via loadState(session.identity) when localStorage is available", () => {
     const store: Record<string, string> = {};
-    const mockLocalStorage = {
+    const mockLocalStorage: Storage = {
       getItem: (key: string) => store[key] ?? null,
       setItem: (key: string, val: string) => {
         store[key] = val;
@@ -392,8 +400,11 @@ describe("ReviewPage component rendering", () => {
       clear: () => {
         for (const k of Object.keys(store)) delete store[k];
       },
+      key: (index: number) => Object.keys(store)[index] ?? null,
+      length: 0,
     };
-    (globalThis as any).localStorage = mockLocalStorage;
+    (globalThis as unknown as { localStorage: Storage }).localStorage =
+      mockLocalStorage as unknown as Storage;
 
     try {
       const savedState: StateV2 = {
@@ -412,6 +423,7 @@ describe("ReviewPage component rendering", () => {
           session: mockSession,
           date: testDate,
           initialKind: "all",
+          initialState: loadState(mockSession.identity),
         }),
       );
 
@@ -419,7 +431,7 @@ describe("ReviewPage component rendering", () => {
       expect(html).toContain("16 周行动足迹");
       expect(html).not.toContain("还没有加入任何卡片");
     } finally {
-      delete (globalThis as any).localStorage;
+      delete (globalThis as unknown as { localStorage?: Storage }).localStorage;
     }
   });
 });

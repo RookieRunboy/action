@@ -18,26 +18,14 @@ export interface ReviewPageProps {
 }
 
 export function ReviewPage({ session, date, initialKind, initialState }: ReviewPageProps) {
-  const [state, setState] = useState<StateV2>(() => {
-    if (initialState) return initialState;
-    if (typeof window === "undefined" && typeof globalThis.localStorage !== "undefined") {
-      return loadState(session.identity);
-    }
-    return emptyState();
-  });
-  const [hydrated, setHydrated] = useState(() => {
-    if (initialState) return true;
-    if (typeof window === "undefined" && typeof globalThis.localStorage !== "undefined") {
-      return true;
-    }
-    return false;
-  });
+  const [state, setState] = useState<StateV2>(() => initialState ?? emptyState());
+  const [hydrated, setHydrated] = useState(() => Boolean(initialState));
 
   useEffect(() => {
-    if (initialState) return;
-    const s = loadState(session.identity);
-    setState(s);
-    setHydrated(true);
+    if (!initialState) {
+      setState(loadState(session.identity));
+      setHydrated(true);
+    }
   }, [session.identity, initialState]);
 
   const stats = computeStats(state.cards, state.states, initialKind, date);
