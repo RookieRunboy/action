@@ -1,9 +1,10 @@
+"use client";
+
 /**
- * Mock preview of the Friends (好友) page for the landing page.
- * Shows the friend list + a peeked Kanshan card with habits and flashcards.
- * Pure presentational, no interactivity or runtime dependencies.
+ * Interactive mock preview of the Friends (好友) page for landing page.
+ * Click "加入我的知行" → changes to "已在知行" (disabled).
  */
-import React from "react";
+import React, { useState } from "react";
 
 const KANSHAN_HABITS = [
   "闭眼坐两分钟，只数呼吸",
@@ -12,18 +13,33 @@ const KANSHAN_HABITS = [
 ];
 
 const KANSHAN_KNOWLEDGE = [
-  { front: "冥想入门最短从多久开始？", adopted: true },
-  { front: "数呼吸时一呼一吸怎么数？", adopted: false },
-  { front: "走神了该怎么办？", adopted: false },
-  { front: "初学冥想必须纠结坐垫吗？", adopted: false },
+  { id: "k1", front: "冥想入门最短从多久开始？" },
+  { id: "k2", front: "数呼吸时一呼一吸怎么数？" },
+  { id: "k3", front: "走神了该怎么办？" },
+  { id: "k4", front: "初学冥想必须纠结坐垫吗？" },
 ];
 
 export function MockFriendsPreview() {
+  const [adopted, setAdopted] = useState<Set<string>>(new Set(["k1"]));
+  const [justAdopted, setJustAdopted] = useState<Set<string>>(new Set());
+
+  const adopt = (id: string) => {
+    setAdopted((prev) => new Set(prev).add(id));
+    setJustAdopted((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setJustAdopted((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 800);
+  };
+
   return (
     <div className="w-full max-w-md mx-auto space-y-3">
       {/* Friend list */}
       <div className="space-y-2">
-        {/* Kanshan row - "selected" state */}
+        {/* Kanshan row */}
         <div
           className="w-full text-left rounded bg-[var(--paper)] text-[var(--ink)] p-3.5"
           style={{
@@ -58,12 +74,10 @@ export function MockFriendsPreview() {
         </div>
       </div>
 
-      {/* Peek card - Kanshan's detail */}
+      {/* Peek card */}
       <div
         className="rounded bg-[var(--paper)] text-[var(--ink)] p-4"
-        style={{
-          boxShadow: "0 24px 48px -24px rgba(0,0,0,.5)",
-        }}
+        style={{ boxShadow: "0 24px 48px -24px rgba(0,0,0,.5)" }}
       >
         <div className="flex items-baseline justify-between">
           <div>
@@ -96,29 +110,43 @@ export function MockFriendsPreview() {
           <h4 className="text-[10px] tracking-[0.18em] text-ink-3 font-medium mb-1.5 uppercase">
             在复习的知识点
           </h4>
-          {KANSHAN_KNOWLEDGE.map((k, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 py-1.5 border-b border-dashed border-[var(--rule)] last:border-b-0 text-[12px]"
-            >
-              <span className="song text-ink flex-1 min-w-0">{k.front}</span>
-              <a
-                className="text-[var(--link)] text-[13px] leading-none shrink-0"
-                aria-label="原文"
+          {KANSHAN_KNOWLEDGE.map((k) => {
+            const isAdopted = adopted.has(k.id);
+            const isJust = justAdopted.has(k.id);
+            return (
+              <div
+                key={k.id}
+                className="flex items-center gap-2 py-1.5 border-b border-dashed border-[var(--rule)] last:border-b-0 text-[12px]"
               >
-                ↗
-              </a>
-              {k.adopted ? (
-                <span className="text-[10px] text-ink-3 shrink-0 border border-[var(--rule)] rounded px-1.5 py-0.5 opacity-60">
-                  已在知行
-                </span>
-              ) : (
-                <span className="text-[10px] text-ink shrink-0 border border-ink rounded px-1.5 py-0.5">
-                  加入我的知行
-                </span>
-              )}
-            </div>
-          ))}
+                <span className="song text-ink flex-1 min-w-0">{k.front}</span>
+                <a
+                  className="text-[var(--link)] text-[13px] leading-none shrink-0 cursor-default"
+                  aria-label="原文"
+                >
+                  ↗
+                </a>
+                {isAdopted ? (
+                  <span
+                    className={`text-[10px] shrink-0 border rounded px-1.5 py-0.5 transition-all duration-300 ${
+                      isJust
+                        ? "text-[var(--seal)] border-[var(--seal)] scale-105"
+                        : "text-ink-3 border-[var(--rule)] opacity-60"
+                    }`}
+                  >
+                    已在知行
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-[10px] text-ink shrink-0 border border-ink rounded px-1.5 py-0.5 bg-transparent cursor-pointer hover:bg-ink hover:text-[var(--paper)] transition-all duration-200"
+                    onClick={() => adopt(k.id)}
+                  >
+                    加入我的知行
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -1,17 +1,18 @@
 import React from 'react';
 import { MockReviewPreview } from './MockReviewPreview';
+import { ScrollReveal } from './ScrollReveal';
 
 export function CommunityLoop() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
       <div className="grid items-center gap-16 lg:grid-cols-2">
         {/* Visual: Left */}
-        <div className="relative">
+        <ScrollReveal>
           <MockReviewPreview />
-        </div>
+        </ScrollReveal>
         
         {/* Text: Right */}
-        <div>
+        <ScrollReveal delay={150}>
           <h2 className="song text-3xl font-semibold leading-tight text-white sm:text-4xl">
             让好内容知道<br />自己被用过。
           </h2>
@@ -21,7 +22,7 @@ export function CommunityLoop() {
           <p className="mt-4 text-lg leading-relaxed text-wall-ink/85">
             让答主收到的不再只是点赞，而是「有人真的照做了」。
           </p>
-        </div>
+        </ScrollReveal>
       </div>
     </section>
   );

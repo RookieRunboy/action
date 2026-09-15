@@ -1,12 +1,13 @@
 import React from 'react';
 import { MockLeafPreview } from './MockLeafPreview';
+import { ScrollReveal } from './ScrollReveal';
 
 export function DailyAction() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8 bg-black/20">
       <div className="grid items-center gap-16 lg:grid-cols-2">
-        {/* Text: Left (Order 1 on desktop, 1 on mobile) */}
-        <div className="order-2 lg:order-1">
+        {/* Text: Left */}
+        <ScrollReveal className="order-2 lg:order-1" delay={150}>
           <h2 className="song text-3xl font-semibold leading-tight text-white sm:text-4xl">
             每天两分钟，<br />只做三件事。
           </h2>
@@ -16,12 +17,12 @@ export function DailyAction() {
           <p className="mt-4 text-lg leading-relaxed text-wall-ink/85">
             连续打卡成功，盖上「知行合一」专属印章。
           </p>
-        </div>
+        </ScrollReveal>
 
-        {/* Visual: Right (Order 2 on desktop, 2 on mobile) */}
-        <div className="order-1 lg:order-2 relative">
+        {/* Visual: Right */}
+        <ScrollReveal className="order-1 lg:order-2 relative">
           <MockLeafPreview />
-        </div>
+        </ScrollReveal>
       </div>
     </section>
   );
