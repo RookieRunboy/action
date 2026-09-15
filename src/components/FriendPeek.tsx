@@ -47,14 +47,15 @@ export function FriendPeek({
         className="peek"
         role="dialog"
         aria-modal="true"
+        aria-labelledby="peek-title"
         tabIndex={-1}
         ref={dialogRef}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2>{name}</h2>
+        <h2 id="peek-title">{name}</h2>
         <span className="peek-handle">{handle}</span>
         {headline ? <p className="peek-head">{headline}</p> : null}
-        <button type="button" onClick={onClose}>
+        <button type="button" className="btn btn-text" onClick={onClose}>
           关闭
         </button>
         {empty ? (
@@ -91,7 +92,7 @@ export function FriendPeek({
                   ) : null}
                   {canAdopt ? (
                     adoptedIds.has(item.id) ? (
-                      <button type="button" disabled>
+                      <button type="button" className="btn btn-ink" disabled>
                         已在知行
                       </button>
                     ) : (

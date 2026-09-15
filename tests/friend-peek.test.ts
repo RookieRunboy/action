@@ -65,4 +65,21 @@ describe("FriendPeek", () => {
     expect(htmlMine).toContain("/plan");
     expect(htmlMine).not.toContain("加入我的知行");
   });
+
+  test("对话框用标题作为无障碍名称", () => {
+    const peek = peekKanshan();
+    const html = renderToStaticMarkup(
+      createElement(FriendPeek, {
+        name: KANSHAN_NAME,
+        handle: KANSHAN_HANDLE,
+        peek,
+        canAdopt: true,
+        adoptedIds: new Set<string>(),
+        onAdopt: () => {},
+        onClose: () => {},
+      }),
+    );
+    expect(html).toContain('aria-labelledby="peek-title"');
+    expect(html).toContain('id="peek-title"');
+  });
 });
