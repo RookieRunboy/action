@@ -14,7 +14,7 @@ interface Props {
   active: "plan" | "today" | "review";
   session: ClientSession;
   right?: ReactNode;
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 export function AppShell({ active, session, right, children }: Props) {
