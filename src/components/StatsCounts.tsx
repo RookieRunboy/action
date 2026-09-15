@@ -17,7 +17,7 @@ export function StatsCounts({ counts, filter }: Props) {
       {/* 连续天数 */}
       <div className="flex items-baseline justify-between border-b border-white/[0.06] pb-5">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">连续践行天数</p>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-wall-dim">连续践行天数</h2>
           <div className="mt-2 flex items-baseline gap-3">
             <span className="date-num !text-[64px] !leading-none text-white">{streakDays}</span>
             <span className="text-sm text-wall-dim">天</span>
@@ -30,9 +30,9 @@ export function StatsCounts({ counts, filter }: Props) {
 
       {/* 状态摘要 */}
       <div className="mt-5">
-        <p className="text-xs uppercase tracking-[0.16em] text-wall-dim">
+        <h2 className="text-xs uppercase tracking-[0.16em] text-wall-dim">
           卡片状态{filter === "action" ? " · 行动" : filter === "flash" ? " · 记" : ""}
-        </p>
+        </h2>
         <dl className="mt-3 grid grid-cols-3 gap-3 text-xs">
           <div className="rounded bg-white/[0.02] p-3">
             <dt className="text-wall-dim">已内化</dt>
@@ -51,7 +51,7 @@ export function StatsCounts({ counts, filter }: Props) {
 
       {/* 行为累计 */}
       <div className="mt-5 border-t border-white/[0.06] pt-5">
-        <p className="text-xs uppercase tracking-[0.16em] text-wall-dim">累计打卡交互</p>
+        <h2 className="text-xs uppercase tracking-[0.16em] text-wall-dim">累计打卡交互</h2>
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {showAction && (
             <div className="rounded border border-white/[0.04] bg-white/[0.01] p-3.5">

@@ -21,7 +21,7 @@ export function StatsCalendar({ calendar }: Props) {
     <section className="card p-6" aria-label="16 周打卡热力">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">16 周行动足迹</p>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-wall-dim">16 周行动足迹</h2>
           <p className="mt-1 text-xs text-wall-dim">
             {startDate} 至 {endDate} · 过去 16 周累计打卡{" "}
             <span className="font-semibold text-white tabular-nums">{totalRecords}</span> 次
@@ -33,7 +33,7 @@ export function StatsCalendar({ calendar }: Props) {
       <div className="mt-6 overflow-x-auto pb-2">
         <div className="flex gap-2 text-[10px] text-wall-dim">
           {/* 星期标签列 */}
-          <div className="flex flex-col justify-between py-0.5 text-right select-none" aria-hidden>
+          <div className="flex flex-col gap-1 text-right select-none" aria-hidden>
             <span className="h-3 leading-3 opacity-0">日</span>
             <span className="h-3 leading-3">一</span>
             <span className="h-3 leading-3 opacity-0">二</span>
@@ -53,9 +53,10 @@ export function StatsCalendar({ calendar }: Props) {
                   return (
                     <div
                       key={day.date}
+                      role="img"
                       className={`h-3 w-3 rounded-xs ${bgClass} ${todayRing}`}
                       title={`${day.date}: ${day.count} 次打卡${day.isToday ? " (今天)" : ""}`}
-                      aria-label={`${day.date}: ${day.count} 次打卡`}
+                      aria-label={`${day.date}: ${day.count} 次打卡${day.isToday ? " (今天)" : ""}`}
                     />
                   );
                 })}

@@ -15,11 +15,11 @@ export function StatsTags({ tags }: Props) {
       return <p className="py-2 text-xs text-wall-dim">{emptyText}</p>;
     }
     return (
-      <div className="space-y-2.5">
+      <ul className="space-y-2.5">
         {items.map((item) => {
           const pct = Math.round((item.count / max) * 100);
           return (
-            <div key={item.tag} className="space-y-1">
+            <li key={item.tag} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-wall-ink">{item.tag}</span>
                 <span className="text-wall-dim tabular-nums">{item.count} 张卡</span>
@@ -30,25 +30,25 @@ export function StatsTags({ tags }: Props) {
                   style={{ width: `${pct}%` }}
                 />
               </div>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     );
   };
 
   return (
     <section className="card p-6" aria-label="标签沉淀">
-      <p className="text-xs uppercase tracking-[0.2em] text-wall-dim">标签分布</p>
+      <h2 className="text-xs uppercase tracking-[0.2em] text-wall-dim">标签分布</h2>
       <p className="mt-1 text-xs text-wall-dim">统计包含有效打卡记录的独立卡片数</p>
 
       <div className="mt-5 grid grid-cols-1 gap-6 sm:grid-cols-2">
         <div className="rounded border border-white/[0.04] bg-white/[0.01] p-4">
-          <p className="mb-3 text-xs font-semibold text-white">做什么 · Do</p>
+          <h3 className="mb-3 text-xs font-semibold text-white">做什么 · Do</h3>
           {renderList(tags.do, maxDo, "暂无行动标签打卡数据")}
         </div>
         <div className="rounded border border-white/[0.04] bg-white/[0.01] p-4">
-          <p className="mb-3 text-xs font-semibold text-white">练什么 · Train</p>
+          <h3 className="mb-3 text-xs font-semibold text-white">练什么 · Train</h3>
           {renderList(tags.train, maxTrain, "暂无心智标签打卡数据")}
         </div>
       </div>

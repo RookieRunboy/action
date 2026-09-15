@@ -132,13 +132,17 @@ describe("StatsCounts component", () => {
     expect(html).not.toContain("做了 (did)");
   });
 
-  test("renders with card styling and semantic aria-label", () => {
+  test("renders with card styling and semantic aria-label and h2 section titles", () => {
     const html = renderToStaticMarkup(
       createElement(StatsCounts, { counts: sampleCounts, filter: "all" })
     );
 
     expect(html).toContain('class="card p-6"');
     expect(html).toContain('aria-label="数量统计"');
+    expect(html).toContain("<h2");
+    expect(html).toContain(">连续践行天数</h2>");
+    expect(html).toContain(">卡片状态</h2>");
+    expect(html).toContain(">累计打卡交互</h2>");
   });
 });
 
@@ -214,13 +218,20 @@ describe("StatsTags component", () => {
     expect(html).toContain("暂无心智标签打卡数据");
   });
 
-  test("renders with card styling and semantic aria-label", () => {
+  test("renders with card styling, semantic h2/h3 headers, and ul/li elements", () => {
     const html = renderToStaticMarkup(
       createElement(StatsTags, { tags: sampleTags })
     );
 
     expect(html).toContain('class="card p-6"');
     expect(html).toContain('aria-label="标签沉淀"');
+    expect(html).toContain("<h2");
+    expect(html).toContain(">标签分布</h2>");
+    expect(html).toContain("<h3");
+    expect(html).toContain(">做什么 · Do</h3>");
+    expect(html).toContain(">练什么 · Train</h3>");
+    expect(html).toContain("<ul");
+    expect(html).toContain("<li");
   });
 });
 
@@ -282,38 +293,40 @@ describe("StatsCalendar component", () => {
     expect(typeof StatsCalendar).toBe("function");
   });
 
-  test("renders header title, date range, total records, and read-only badge", () => {
+  test("renders header title h2, date range, total records, and read-only badge", () => {
     const calendar = createSampleCalendar();
     const html = renderToStaticMarkup(
       createElement(StatsCalendar, { calendar })
     );
 
-    expect(html).toContain("16 周行动足迹");
+    expect(html).toContain("<h2");
+    expect(html).toContain(">16 周行动足迹</h2>");
     expect(html).toContain("2026-05-24 至 2026-09-12");
     expect(html).toContain(`过去 16 周累计打卡`);
     expect(html).toContain(`${calendar.totalRecords}`);
     expect(html).toContain("只看不点");
   });
 
-  test("renders weekday labels including 一, 三, 五", () => {
+  test("renders weekday labels including 一, 三, 五 aligned with gap-1", () => {
     const calendar = createSampleCalendar();
     const html = renderToStaticMarkup(
       createElement(StatsCalendar, { calendar })
     );
 
+    expect(html).toContain("flex flex-col gap-1");
     expect(html).toContain("一");
     expect(html).toContain("三");
     expect(html).toContain("五");
   });
 
-  test("renders exactly 16 week columns and 112 day cells", () => {
+  test("renders exactly 16 week columns and 112 day cells with role='img'", () => {
     const calendar = createSampleCalendar();
     const html = renderToStaticMarkup(
       createElement(StatsCalendar, { calendar })
     );
 
-    // Each cell has aria-label="YYYY-MM-DD: N 次打卡"
-    const cellMatches = Array.from(html.matchAll(/aria-label="[\d-]+: \d+ 次打卡"/g));
+    // Each cell has role="img" and aria-label="YYYY-MM-DD: N 次打卡[ (今天)]"
+    const cellMatches = Array.from(html.matchAll(/role="img"[^>]*aria-label="[\d-]+: \d+ 次打卡(?:\s*\(今天\))?"/g));
     expect(cellMatches.length).toBe(112);
   });
 
@@ -337,7 +350,7 @@ describe("StatsCalendar component", () => {
     expect(html).toContain("bg-white/[0.01]");
   });
 
-  test("highlights today cell with ring and tooltip text", () => {
+  test("highlights today cell with ring, tooltip text, and aria-label", () => {
     const calendar = createSampleCalendar();
     const html = renderToStaticMarkup(
       createElement(StatsCalendar, { calendar })
@@ -345,6 +358,7 @@ describe("StatsCalendar component", () => {
 
     expect(html).toContain("ring-1 ring-white/80");
     expect(html).toContain("(今天)");
+    expect(html).toContain('aria-label="2026-05-108: 0 次打卡 (今天)"');
   });
 
   test("renders bottom legend with 少, 多, and level color blocks", () => {
