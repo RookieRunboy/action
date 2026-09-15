@@ -36,9 +36,14 @@ describe("AppShell 导航栏", () => {
     type AppShellProps = Parameters<typeof AppShell>[0];
     const reviewActive: AppShellProps["active"] = "review";
     expect(reviewActive).toBe("review");
+
+    expect(source).toMatch(/active:\s*.*"friends"/);
+    expect(source).toMatch(/href:[\s\S]*"\/friends"[\s\S]*key:[\s\S]*"friends"/);
+    const friendsActive: AppShellProps["active"] = "friends";
+    expect(friendsActive).toBe("friends");
   });
 
-  test("导航栏按顺序渲染 /today, /plan, /review 三个项", () => {
+  test("导航栏按顺序渲染 /today, /plan, /review, /friends 四个项", () => {
     const html = renderToStaticMarkup(
       createElement(
         AppShell,
@@ -57,7 +62,7 @@ describe("AppShell 导航栏", () => {
 
     // 提取 nav 中的 a 标签 href 与文本
     const linkMatches = Array.from(navHtml.matchAll(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g));
-    expect(linkMatches.length).toBe(3);
+    expect(linkMatches.length).toBe(4);
 
     expect(linkMatches[0][1]).toBe("/today");
     expect(linkMatches[0][2]).toBe("今日");
@@ -67,6 +72,9 @@ describe("AppShell 导航栏", () => {
 
     expect(linkMatches[2][1]).toBe("/review");
     expect(linkMatches[2][2]).toBe("回顾");
+
+    expect(linkMatches[3][1]).toBe("/friends");
+    expect(linkMatches[3][2]).toBe("好友");
   });
 
   test("回顾项链接至 /review 且文本为「回顾」", () => {
@@ -121,5 +129,23 @@ describe("AppShell 导航栏", () => {
     const reviewInPlan = htmlPlan.match(/<a[^>]*href="\/review"[^>]*>/);
     expect(reviewInPlan).not.toBeNull();
     expect(reviewInPlan![0]).not.toContain('aria-current="page"');
+  });
+
+  test("active 为 friends 时，好友项链接带 aria-current=\"page\"", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        AppShell,
+        {
+          active: "friends",
+          session: mockSession,
+        },
+        "child"
+      )
+    );
+
+    const friendsLinkMatch = html.match(/<a[^>]*href="\/friends"[^>]*>(.*?)<\/a>/);
+    expect(friendsLinkMatch).not.toBeNull();
+    const friendsLinkTag = friendsLinkMatch![0];
+    expect(friendsLinkTag).toContain('aria-current="page"');
   });
 });

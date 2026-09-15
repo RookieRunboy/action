@@ -653,4 +653,15 @@ body {
 }
 .later-row:last-child { border-bottom: 0; }
 
+.friend-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; max-width: 560px; }
+.friend-row {
+  width: 100%; text-align: left; cursor: pointer;
+  background: var(--paper); color: var(--ink);
+  border: 0; border-radius: 4px; padding: 16px 18px;
+  display: grid; gap: 4px;
+}
+.friend-name { font-family: var(--font-song); font-size: 18px; }
+.friend-id { font-size: 12px; color: var(--ink-3); }
+.friend-latest { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+
 
