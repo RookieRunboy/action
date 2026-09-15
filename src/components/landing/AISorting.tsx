@@ -1,15 +1,13 @@
 import React from 'react';
+import { MockPlanPreview } from './MockPlanPreview';
 
 export function AISorting() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8">
       <div className="grid items-center gap-16 lg:grid-cols-2">
         {/* Visual: Left */}
-        <div className="relative aspect-square rounded-2xl bg-white/5 p-8 border border-white/10 flex items-center justify-center">
-           <div className="text-center text-wall-dim">
-             <div className="text-4xl mb-4">🤖</div>
-             <div className="text-sm border border-wall-dim/30 rounded px-4 py-2 inline-block">AI 正在提取能做的行动...</div>
-           </div>
+        <div className="relative">
+          <MockPlanPreview />
         </div>
         
         {/* Text: Right */}

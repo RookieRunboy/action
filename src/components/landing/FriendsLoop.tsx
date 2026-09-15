@@ -1,26 +1,26 @@
 import React from 'react';
-import { MockLeafPreview } from './MockLeafPreview';
+import { MockFriendsPreview } from './MockFriendsPreview';
 
-export function DailyAction() {
+export function FriendsLoop() {
   return (
     <section className="mx-auto max-w-6xl px-4 py-24 sm:px-6 lg:px-8 bg-black/20">
       <div className="grid items-center gap-16 lg:grid-cols-2">
-        {/* Text: Left (Order 1 on desktop, 1 on mobile) */}
+        {/* Text: Left */}
         <div className="order-2 lg:order-1">
           <h2 className="song text-3xl font-semibold leading-tight text-white sm:text-4xl">
-            每天两分钟，<br />只做三件事。
+            看看好友在练什么，<br />顺手加入自己的知行。
           </h2>
           <p className="mt-6 text-lg leading-relaxed text-wall-ink/85">
-            结合艾宾浩斯记忆曲线，每天为你推送最该做的事。
+            打开好友的主页，看他正在坚持的习惯和正在记忆的知识点。
           </p>
           <p className="mt-4 text-lg leading-relaxed text-wall-ink/85">
-            连续打卡成功，盖上「知行合一」专属印章。
+            觉得值得记的闪卡，一键加入你自己的复习队列。
           </p>
         </div>
 
-        {/* Visual: Right (Order 2 on desktop, 2 on mobile) */}
+        {/* Visual: Right */}
         <div className="order-1 lg:order-2 relative">
-          <MockLeafPreview />
+          <MockFriendsPreview />
         </div>
       </div>
     </section>

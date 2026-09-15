@@ -4,6 +4,7 @@ import { Hero } from "./landing/Hero";
 import { AISorting } from "./landing/AISorting";
 import { DailyAction } from "./landing/DailyAction";
 import { CommunityLoop } from "./landing/CommunityLoop";
+import { FriendsLoop } from "./landing/FriendsLoop";
 import { BottomCTA } from "./landing/BottomCTA";
 
 interface Props {
@@ -18,6 +19,7 @@ export function Welcome({ oauth, error }: Props) {
       <AISorting />
       <DailyAction />
       <CommunityLoop />
+      <FriendsLoop />
       <BottomCTA oauth={oauth} />
     </main>
   );
