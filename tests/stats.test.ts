@@ -572,3 +572,296 @@ describe("computeStats - 16 周热力图", () => {
     expect(allCells.some((c) => c.date === "2026-05-30")).toBe(false);
   });
 });
+
+describe("computeStats - 边界与回归测试 (Edge cases & regression)", () => {
+  const mockCard = (id: string, kind: "action" | "flash"): Card =>
+    kind === "action"
+      ? {
+          id,
+          folderToken: "f1",
+          kind: "action",
+          source: {
+            url: `https://zhihu.com/question/1/answer/${id}`,
+            title: `卡片 ${id}`,
+            contentType: "answer",
+            favTime: 1700000000,
+            likeCount: 10,
+            summary: "摘要",
+          },
+          tags: { do: ["专注"], train: ["自律"] },
+          sourceQuote: "摘要原文",
+          reason: "分拣理由",
+          action: "行动描述",
+          why: "行动理由",
+          replyDraft: "感谢",
+        }
+      : {
+          id,
+          folderToken: "f1",
+          kind: "flash",
+          source: {
+            url: `https://zhihu.com/question/1/answer/${id}`,
+            title: `卡片 ${id}`,
+            contentType: "answer",
+            favTime: 1700000000,
+            likeCount: 10,
+            summary: "摘要",
+          },
+          tags: { do: ["英语"], train: ["记忆"] },
+          sourceQuote: "摘要原文",
+          reason: "分拣理由",
+          front: "问题",
+          back: "答案",
+        };
+
+  const mockState = (
+    id: string,
+    kind: "action" | "flash",
+    history: CardState["history"] = [],
+  ): CardState => ({
+    id,
+    kind,
+    status: "active",
+    box: 1,
+    due: "2026-09-15",
+    introducedAt: "2026-09-10",
+    addedAt: 1700000000,
+    history,
+  });
+
+  test("连续打卡断档：最后一次打卡在 2026-09-13，2026-09-14 无打卡，今天是 2026-09-15 -> streakDays 为 0 (Gap in check-ins breaks streak)", () => {
+    const today = "2026-09-15";
+    const cards = { a1: mockCard("a1", "action") };
+    const states = {
+      a1: mockState("a1", "action", [
+        { date: "2026-09-13", result: "did" },
+      ]),
+    };
+
+    const stats = computeStats(cards, states, "all", today);
+    expect(stats.counts.streakDays).toBe(0);
+
+    // 验证不同 filter 下 streakDays 均为 0（streak 为全局统计，不受 filter 影响）
+    const statsAction = computeStats(cards, states, "action", today);
+    expect(statsAction.counts.streakDays).toBe(0);
+    const statsFlash = computeStats(cards, states, "flash", today);
+    expect(statsFlash.counts.streakDays).toBe(0);
+  });
+
+  test("连续打卡延续：昨天 2026-09-14 有打卡，今天 2026-09-15 尚无打卡 -> streakDays 为 1 (Streak continues)", () => {
+    const today = "2026-09-15";
+    const cards = { a1: mockCard("a1", "action") };
+    const states = {
+      a1: mockState("a1", "action", [
+        { date: "2026-09-14", result: "did" },
+      ]),
+    };
+
+    const stats = computeStats(cards, states, "all", today);
+    expect(stats.counts.streakDays).toBe(1);
+
+    const statsAction = computeStats(cards, states, "action", today);
+    expect(statsAction.counts.streakDays).toBe(1);
+    const statsFlash = computeStats(cards, states, "flash", today);
+    expect(statsFlash.counts.streakDays).toBe(1);
+  });
+
+  test("昨天 2026-09-14 和今天 2026-09-15 均有打卡 -> streakDays 为 2 (Check-in on both yesterday and today)", () => {
+    const today = "2026-09-15";
+    const cards = {
+      a1: mockCard("a1", "action"),
+      f1: mockCard("f1", "flash"),
+    };
+    const states = {
+      a1: mockState("a1", "action", [
+        { date: "2026-09-14", result: "did" },
+      ]),
+      f1: mockState("f1", "flash", [
+        { date: "2026-09-15", result: "remembered" },
+      ]),
+    };
+
+    const stats = computeStats(cards, states, "all", today);
+    expect(stats.counts.streakDays).toBe(2);
+
+    // 同一天内多张卡打卡，streak 天数不重复计算
+    const statesMulti = {
+      a1: mockState("a1", "action", [
+        { date: "2026-09-14", result: "did" },
+        { date: "2026-09-15", result: "did" },
+      ]),
+      f1: mockState("f1", "flash", [
+        { date: "2026-09-14", result: "forgot" },
+        { date: "2026-09-15", result: "vague" },
+      ]),
+    };
+    const statsMulti = computeStats(cards, statesMulti, "all", today);
+    expect(statsMulti.counts.streakDays).toBe(2);
+  });
+
+  test("热力图等级映射完整边界验证 (Heatmap levels: 0->0, 1->1, 2->2, 3->3, >=4->4, inFuture->0)", () => {
+    const today = "2026-09-15"; // 星期二
+    const cards = { a1: mockCard("a1", "action") };
+    const states = {
+      a1: mockState("a1", "action", [
+        // 2026-09-08: 0 次打卡 (未在 history 中出现) -> 期望 count: 0, level: 0
+        // 2026-09-09: 1 次打卡 -> 期望 count: 1, level: 1
+        { date: "2026-09-09", result: "did" },
+        // 2026-09-10: 2 次打卡 -> 期望 count: 2, level: 2
+        { date: "2026-09-10", result: "did" },
+        { date: "2026-09-10", result: "did" },
+        // 2026-09-11: 3 次打卡 -> 期望 count: 3, level: 3
+        { date: "2026-09-11", result: "did" },
+        { date: "2026-09-11", result: "did" },
+        { date: "2026-09-11", result: "did" },
+        // 2026-09-12: 4 次打卡 -> 期望 count: 4, level: 4
+        { date: "2026-09-12", result: "did" },
+        { date: "2026-09-12", result: "did" },
+        { date: "2026-09-12", result: "did" },
+        { date: "2026-09-12", result: "did" },
+        // 2026-09-13: 7 次打卡 (>=4) -> 期望 count: 7, level: 4
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        // 2026-09-16 (明天/未来): 即使存在 5 次打卡数据，也必须强制 count: 0, level: 0
+        { date: "2026-09-16", result: "did" },
+        { date: "2026-09-16", result: "did" },
+        { date: "2026-09-16", result: "did" },
+        { date: "2026-09-16", result: "did" },
+        { date: "2026-09-16", result: "did" },
+      ]),
+    };
+
+    const stats = computeStats(cards, states, "all", today);
+    const cells = stats.calendar.weeks.flatMap((w) => w.days);
+    const getCell = (d: string) => cells.find((c) => c.date === d)!;
+
+    // 0 check-ins -> level 0
+    const cell0 = getCell("2026-09-08");
+    expect(cell0.count).toBe(0);
+    expect(cell0.level).toBe(0);
+    expect(cell0.inFuture).toBe(false);
+
+    // 1 check-in -> level 1
+    const cell1 = getCell("2026-09-09");
+    expect(cell1.count).toBe(1);
+    expect(cell1.level).toBe(1);
+
+    // 2 check-ins -> level 2
+    const cell2 = getCell("2026-09-10");
+    expect(cell2.count).toBe(2);
+    expect(cell2.level).toBe(2);
+
+    // 3 check-ins -> level 3
+    const cell3 = getCell("2026-09-11");
+    expect(cell3.count).toBe(3);
+    expect(cell3.level).toBe(3);
+
+    // 4 check-ins -> level 4
+    const cell4 = getCell("2026-09-12");
+    expect(cell4.count).toBe(4);
+    expect(cell4.level).toBe(4);
+
+    // 4 or more check-ins (7 次) -> level 4
+    const cell7 = getCell("2026-09-13");
+    expect(cell7.count).toBe(7);
+    expect(cell7.level).toBe(4);
+
+    // inFuture (明天 2026-09-16 含有打卡记录) -> 强制 count: 0, level: 0, inFuture: true
+    const cellFutureWithRecords = getCell("2026-09-16");
+    expect(cellFutureWithRecords.count).toBe(0);
+    expect(cellFutureWithRecords.level).toBe(0);
+    expect(cellFutureWithRecords.inFuture).toBe(true);
+
+    // inFuture (后天 2026-09-17 无记录) -> count: 0, level: 0, inFuture: true
+    const cellFutureEmpty = getCell("2026-09-17");
+    expect(cellFutureEmpty.count).toBe(0);
+    expect(cellFutureEmpty.level).toBe(0);
+    expect(cellFutureEmpty.inFuture).toBe(true);
+  });
+
+  test("日历过滤隔离性验证 (Filter isolation: filter='action' 严格排除闪卡，filter='flash' 严格排除行动卡)", () => {
+    const today = "2026-09-15";
+    // 设置 3 个不同日期：
+    // 2026-09-13: 只有行动卡打卡 (2 次 did)
+    // 2026-09-14: 只有闪卡打卡 (1 次 remembered + 1 次 forgot)
+    // 2026-09-15: 行动卡打卡 1 次 (did) + 闪卡打卡 2 次 (vague, remembered)
+    const cards = {
+      a1: mockCard("a1", "action"),
+      f1: mockCard("f1", "flash"),
+    };
+    const states = {
+      a1: mockState("a1", "action", [
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-13", result: "did" },
+        { date: "2026-09-15", result: "did" },
+      ]),
+      f1: mockState("f1", "flash", [
+        { date: "2026-09-14", result: "remembered" },
+        { date: "2026-09-14", result: "forgot" },
+        { date: "2026-09-15", result: "vague" },
+        { date: "2026-09-15", result: "remembered" },
+      ]),
+    };
+
+    // 1. filter="all": 包含所有卡片记录
+    const statsAll = computeStats(cards, states, "all", today);
+    const cellsAll = statsAll.calendar.weeks.flatMap((w) => w.days);
+    const getCellAll = (d: string) => cellsAll.find((c) => c.date === d)!;
+
+    expect(getCellAll("2026-09-13").count).toBe(2);
+    expect(getCellAll("2026-09-13").level).toBe(2);
+    expect(getCellAll("2026-09-14").count).toBe(2);
+    expect(getCellAll("2026-09-14").level).toBe(2);
+    expect(getCellAll("2026-09-15").count).toBe(3); // 1 did + 1 vague + 1 remembered
+    expect(getCellAll("2026-09-15").level).toBe(3);
+    // calendar.totalRecords 汇总所有窗口内记录 (2 + 2 + 3 = 7)
+    expect(statsAll.calendar.totalRecords).toBe(7);
+    expect(statsAll.filteredEffectiveRecords).toBe(7);
+    expect(statsAll.totalEffectiveRecords).toBe(7);
+
+    // 2. filter="action": 闪卡记录被严格排除
+    const statsAction = computeStats(cards, states, "action", today);
+    const cellsAction = statsAction.calendar.weeks.flatMap((w) => w.days);
+    const getCellAction = (d: string) => cellsAction.find((c) => c.date === d)!;
+
+    // 09-13 只有行动卡打卡: 2
+    expect(getCellAction("2026-09-13").count).toBe(2);
+    expect(getCellAction("2026-09-13").level).toBe(2);
+    // 09-14 只有闪卡打卡: 闪卡被排除，count 必须为 0, level 为 0
+    expect(getCellAction("2026-09-14").count).toBe(0);
+    expect(getCellAction("2026-09-14").level).toBe(0);
+    // 09-15 行动卡与闪卡混排: 闪卡被排除，仅计行动卡的 1 次
+    expect(getCellAction("2026-09-15").count).toBe(1);
+    expect(getCellAction("2026-09-15").level).toBe(1);
+    // calendar.totalRecords 只包含行动卡 (2 + 0 + 1 = 3)
+    expect(statsAction.calendar.totalRecords).toBe(3);
+    expect(statsAction.filteredEffectiveRecords).toBe(3);
+    // 全局 totalEffectiveRecords 保持 7
+    expect(statsAction.totalEffectiveRecords).toBe(7);
+
+    // 3. filter="flash": 行动卡记录被严格排除
+    const statsFlash = computeStats(cards, states, "flash", today);
+    const cellsFlash = statsFlash.calendar.weeks.flatMap((w) => w.days);
+    const getCellFlash = (d: string) => cellsFlash.find((c) => c.date === d)!;
+
+    // 09-13 只有行动卡打卡: 行动卡被排除，count 必须为 0, level 为 0
+    expect(getCellFlash("2026-09-13").count).toBe(0);
+    expect(getCellFlash("2026-09-13").level).toBe(0);
+    // 09-14 只有闪卡打卡: 计入闪卡 2 次
+    expect(getCellFlash("2026-09-14").count).toBe(2);
+    expect(getCellFlash("2026-09-14").level).toBe(2);
+    // 09-15 行动卡与闪卡混排: 行动卡被排除，仅计闪卡的 2 次
+    expect(getCellFlash("2026-09-15").count).toBe(2);
+    expect(getCellFlash("2026-09-15").level).toBe(2);
+    // calendar.totalRecords 只包含闪卡 (0 + 2 + 2 = 4)
+    expect(statsFlash.calendar.totalRecords).toBe(4);
+    expect(statsFlash.filteredEffectiveRecords).toBe(4);
+    // 全局 totalEffectiveRecords 保持 7
+    expect(statsFlash.totalEffectiveRecords).toBe(7);
+  });
+});
