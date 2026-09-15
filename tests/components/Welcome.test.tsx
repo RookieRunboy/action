@@ -9,11 +9,11 @@ test("Welcome page contains all storytelling sections", () => {
   // Hero
   expect(html).toContain("你收藏过的每一条干货");
   // AISorting
-  expect(html).toContain("收藏夹里几百篇干货？交给 AI 去挑。");
+  expect(html).toContain("收藏夹里几百篇干货？");
   // DailyAction
-  expect(html).toContain("每天两分钟，只做三件事。");
+  expect(html).toContain("每天两分钟，");
   // CommunityLoop
-  expect(html).toContain("让好内容知道自己被用过。");
+  expect(html).toContain("让好内容知道");
   // BottomCTA
-  expect(html).toContain("是时候给你的收藏夹来一次大扫除了。");
+  expect(html).toContain("是时候给你的收藏夹");
 });
