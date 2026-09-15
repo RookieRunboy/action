@@ -40,11 +40,14 @@ describe("AppShell 导航栏", () => {
 
   test("导航栏按顺序渲染 /today, /plan, /review 三个项", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, {
-        active: "today",
-        session: mockSession,
-        children: "child",
-      })
+      createElement(
+        AppShell,
+        {
+          active: "today",
+          session: mockSession,
+        },
+        "child"
+      )
     );
 
     // 匹配 <nav ...> 内的所有 <a ...>...</a>
@@ -68,11 +71,14 @@ describe("AppShell 导航栏", () => {
 
   test("回顾项链接至 /review 且文本为「回顾」", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, {
-        active: "review",
-        session: mockSession,
-        children: "child",
-      })
+      createElement(
+        AppShell,
+        {
+          active: "review",
+          session: mockSession,
+        },
+        "child"
+      )
     );
 
     // 验证回顾 tab 存在且具有 aria-current="page"
@@ -89,14 +95,31 @@ describe("AppShell 导航栏", () => {
 
   test("active 为 today 或 plan 时，回顾项不高亮", () => {
     const htmlToday = renderToStaticMarkup(
-      createElement(AppShell, {
-        active: "today",
-        session: mockSession,
-        children: "child",
-      })
+      createElement(
+        AppShell,
+        {
+          active: "today",
+          session: mockSession,
+        },
+        "child"
+      )
     );
     const reviewInToday = htmlToday.match(/<a[^>]*href="\/review"[^>]*>/);
     expect(reviewInToday).not.toBeNull();
     expect(reviewInToday![0]).not.toContain('aria-current="page"');
+
+    const htmlPlan = renderToStaticMarkup(
+      createElement(
+        AppShell,
+        {
+          active: "plan",
+          session: mockSession,
+        },
+        "child"
+      )
+    );
+    const reviewInPlan = htmlPlan.match(/<a[^>]*href="\/review"[^>]*>/);
+    expect(reviewInPlan).not.toBeNull();
+    expect(reviewInPlan![0]).not.toContain('aria-current="page"');
   });
 });
