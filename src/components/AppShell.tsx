@@ -11,7 +11,7 @@ export interface ClientSession {
 }
 
 interface Props {
-  active: "plan" | "today";
+  active: "plan" | "today" | "review";
   session: ClientSession;
   right?: ReactNode;
   children: ReactNode;
@@ -24,7 +24,7 @@ export function AppShell({ active, session, right, children }: Props) {
     router.push("/");
     router.refresh();
   }
-  const tab = (href: "/plan" | "/today", label: string, key: "plan" | "today") => (
+  const tab = (href: "/plan" | "/today" | "/review", label: string, key: "plan" | "today" | "review") => (
     <Link
       href={href}
       className={`px-2 py-1 text-sm transition-colors ${active === key ? "text-white border-b border-[var(--seal)]" : "text-wall-dim hover:text-white"}`}
@@ -44,6 +44,7 @@ export function AppShell({ active, session, right, children }: Props) {
           <nav className="flex items-center gap-3" aria-label="页面">
             {tab("/today", "今日", "today")}
             {tab("/plan", "筹划", "plan")}
+            {tab("/review", "回顾", "review")}
           </nav>
         </div>
         <div className="flex flex-wrap items-center gap-2">
