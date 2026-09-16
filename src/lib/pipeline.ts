@@ -3,6 +3,7 @@ import { cacheGet, cacheSet, hashKey } from "./cache";
 import { chatJSON, providerLabel, type ChatFn } from "./llm";
 import { resolveIngestFolders } from "./folders";
 import { getFavlistItems, getFavlists } from "./zhihu";
+import { getSeedFolders, getSeedItems, SEED_FOLDER } from "./seed-library";
 import { ACTION_SYSTEM, FLASH_SYSTEM, LIFE_SCENE_REASON, SORT_SYSTEM, applyLifeScenePolicy, lifeSceneVerdict } from "./prompts";
 import { normalizeTags } from "./tags";
 
@@ -77,7 +78,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
 
 function describeItem(it: FavItem): string {
   const author = it.author?.name || "匿名";
-  return `[${it.id}] ${it.title}｜${author}｜赞 ${it.likeCount}｜摘要：${clip(it.summary, 300) || "（无摘要）"}`;
+  return `[${it.id}] ${it.title}｜${author}｜赞 ${it.likeCount}｜正文：${clip(it.summary, 2000) || "（无正文）"}`;
 }
 
 // ───────── 分拣 ─────────
@@ -269,8 +270,8 @@ export async function ingestLibrary(
   deps: ScanDeps = {},
 ): Promise<CardsResponse> {
   const chat = deps.chat ?? (chatJSON as ChatFn);
-  const fetchFolders = deps.fetchFolders ?? getFavlists;
-  const fetchItems = deps.fetchItems ?? getFavlistItems;
+  const fetchFolders = deps.fetchFolders ?? getSeedFolders;
+  const fetchItems = deps.fetchItems ?? getSeedItems;
   const { folders, stale: s1 } = await fetchFolders(input.identity, input.oauthToken);
   const targets = resolveIngestFolders(folders, input.folderTokens);
   const batches: ItemBatch[] = await mapPool(targets, FOLDER_CONCURRENCY, async (f) => {
@@ -284,7 +285,7 @@ export async function ingestLibrary(
   const { cards, skipped, counts } = await cardsFromSorted(items, sorted, chat, LIBRARY_TOKEN);
 
   return {
-    folder: { urlToken: LIBRARY_TOKEN, title: "收藏" },
+    folder: { urlToken: LIBRARY_TOKEN, title: SEED_FOLDER.title },
     counts,
     cards,
     skipped,

@@ -347,7 +347,7 @@ describe("ingestLibrary", () => {
       },
     );
     expect(fetched).toEqual(["pub"]);
-    expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "收藏" });
+    expect(res.folder).toEqual({ urlToken: LIBRARY_TOKEN, title: "我的收藏" });
     expect(res.cards.find((c) => c.kind === "action")?.folderToken).toBe("pub");
     expect(res.counts.total).toBe(4);
   });
